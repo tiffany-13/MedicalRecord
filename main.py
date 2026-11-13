@@ -2,58 +2,79 @@ import json
 import sys
 import concurrent.futures
 from pathlib import Path
-from src.api_client import call_llm, parse_json_response, RUN_LOGS
+from dotenv import load_dotenv
+from src.api_client import mock_llm_success, parse_json_response, RUN_LOGS
+from prompts.prompt_v1 import SYSTEM_PROMPT
 
 BASE_DIR = Path(__file__).resolve().parent
+load_dotenv(dotenv_path=BASE_DIR / ".env", override=True)
 INPUT_FILE = BASE_DIR / "input.json"
 OUTPUT_FILE = BASE_DIR / "output.json"
 TEMP_FILE = BASE_DIR / "output_tmp.json"
 LOG_FILE = BASE_DIR / "run_log.json"
 
 # 并发上限 (根据赛方规定调整，暂定为3)
-MAX_WORKERS = 3 
+MAX_WORKERS = 3
 
 def process_case(case):
-    """处理单个病例的核心逻辑"""
-    case_id = case.get("case_id")
-    
-    # 提取原始资料
+    import json
+    import re
+    from prompts.prompt_v1 import PROMPT_STEP1, PROMPT_STEP2  # D负责写这两个变量
+    from src.validation import validate_record # C负责写这个函数
+
+    case_id = case.get("case_id", "UNKNOWN")
+    sources = case.get("sources", [])
+
+    # 1. 拼装资料 (给 D 的输入)
     sources_text = ""
-    for src in case.get("sources", []):
-        sources_text += f"[{src.get('source_id')}] {src.get('content')}\n"
-    
-    # 构造 Prompt (后续由队员D替换为高级Prompt)
-    messages = [
-        {"role": "system", "content": "你是一个医生。请仅输出合法的JSON格式，不要包含Markdown标记。"},
-        {"role": "user", "content": f"资料如下：\n{sources_text}\n请生成：case_features, diagnostic_discussion, plan, evidence, review_items 字段。"}
-    ]
-    
+    for src in sources:
+        s_id = src.get("source_id", "")
+        s_content = src.get("content", "")
+        sources_text += f"[{s_id}] {s_content}\n"
+
+    # 2. 流水线调用（写死用 D 的 Prompt）
     try:
-        # 1. 请求模型
-        raw_response = call_llm(case_id, messages)
+        msg1 = [
+            {"role": "system", "content": PROMPT_STEP1},
+            {"role": "user", "content": f"资料：\n{sources_text}"}
+        ]
+        features_text = "【模拟】病例特点文本"
         
-        # 2. 解析 JSON
-        parsed_data = parse_json_response(raw_response)
+        msg2 = [
+            {"role": "system", "content": PROMPT_STEP2},
+            {"role": "user", "content": f"原始资料：\n{sources_text}\n\n病例特点：\n{features_text}\n\n请输出符合赛方要求的 JSON。"}
+        ]
+        raw_text = mock_llm_success(case_id, msg2)
         
-        # 3. 基础字段缺失防御 (兜底)
-        for key in ["case_features", "diagnostic_discussion", "plan", "evidence", "review_items"]:
-            if key not in parsed_data:
-                parsed_data[key] = "" if key != "evidence" and key != "review_items" else []
-                
-        return {
-            "case_id": case_id,
-            "status": "success",
-            "medical_record": parsed_data,
-            "error": None
-        }
     except Exception as e:
-        # 捕获异常，返回失败结构
         return {
-            "case_id": case_id,
-            "status": "failed",
-            "medical_record": None,
-            "error": {"code": "PROCESS_ERROR", "message": str(e)}
+            "case_id": case_id, "status": "failed", "medical_record": None,
+            "error": {"code": "API_ERROR", "message": str(e)}
         }
+
+    # 3. 解析 JSON
+    try:
+        medical_record = parse_json_response(raw_text)
+    except Exception as e:
+        return {
+            "case_id": case_id, "status": "failed", "medical_record": None,
+            "error": {"code": "JSON_PARSE_ERROR", "message": "模型没吐合法的JSON"}
+        }
+
+    # 4. 交给 C 去校验（C 如果校验不过，会抛异常，B 直接拦截）
+    try:
+        # C 的代码必须在这个函数里完成所有的溯源、红线拦截
+        validate_record(medical_record, sources) 
+    except Exception as e:
+        return {
+            "case_id": case_id, "status": "failed", "medical_record": None,
+            "error": {"code": "VALIDATION_ERROR", "message": str(e)}
+        }
+
+    # 5. 校验全过，返回成功
+    return {
+        "case_id": case_id, "status": "success", "medical_record": medical_record, "error": None
+    }
 
 def main():
     # 1. 读取输入文件
