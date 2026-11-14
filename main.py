@@ -1,124 +1,155 @@
-import json
-import sys
 import concurrent.futures
+import json
+import os
+import sys
 from pathlib import Path
-from dotenv import load_dotenv
-from src.api_client import mock_llm_success, parse_json_response, RUN_LOGS
-from prompts.prompt_v1 import SYSTEM_PROMPT
+
+from prompts.prompt_v1 import PROMPT_VERSION, build_messages, load_system_prompt
+from src.api_client import RUN_LOGS, call_llm, get_config, parse_json_response
 
 BASE_DIR = Path(__file__).resolve().parent
-load_dotenv(dotenv_path=BASE_DIR / ".env", override=True)
 INPUT_FILE = BASE_DIR / "input.json"
 OUTPUT_FILE = BASE_DIR / "output.json"
 TEMP_FILE = BASE_DIR / "output_tmp.json"
 LOG_FILE = BASE_DIR / "run_log.json"
-
-# 并发上限 (根据赛方规定调整，暂定为3)
+LOG_TEMP_FILE = BASE_DIR / "run_log_tmp.json"
 MAX_WORKERS = 3
 
-def process_case(case):
-    import json
-    import re
-    from prompts.prompt_v1 import PROMPT_STEP1, PROMPT_STEP2  # D负责写这两个变量
-    from src.validation import validate_record # C负责写这个函数
 
-    case_id = case.get("case_id", "UNKNOWN")
-    sources = case.get("sources", [])
+def write_json_atomic(path, temp_path, data):
+    with open(temp_path, "w", encoding="utf-8") as handle:
+        json.dump(data, handle, ensure_ascii=False, indent=2)
+    os.replace(temp_path, path)
 
-    # 1. 拼装资料 (给 D 的输入)
-    sources_text = ""
-    for src in sources:
-        s_id = src.get("source_id", "")
-        s_content = src.get("content", "")
-        sources_text += f"[{s_id}] {s_content}\n"
 
-    # 2. 流水线调用（写死用 D 的 Prompt）
-    try:
-        msg1 = [
-            {"role": "system", "content": PROMPT_STEP1},
-            {"role": "user", "content": f"资料：\n{sources_text}"}
-        ]
-        features_text = "【模拟】病例特点文本"
-        
-        msg2 = [
-            {"role": "system", "content": PROMPT_STEP2},
-            {"role": "user", "content": f"原始资料：\n{sources_text}\n\n病例特点：\n{features_text}\n\n请输出符合赛方要求的 JSON。"}
-        ]
-        raw_text = mock_llm_success(case_id, msg2)
-        
-    except Exception as e:
-        return {
-            "case_id": case_id, "status": "failed", "medical_record": None,
-            "error": {"code": "API_ERROR", "message": str(e)}
-        }
+def validate_input(cases):
+    if not isinstance(cases, list):
+        raise ValueError("input.json 顶层必须是数组")
+    seen = set()
+    for case in cases:
+        if not isinstance(case, dict):
+            raise ValueError("input.json 的每个病例必须是对象")
+        case_id = case.get("case_id")
+        if not isinstance(case_id, str) or not case_id.strip():
+            raise ValueError("病例标识缺失")
+        if case_id in seen:
+            raise ValueError(f"病例标识重复: {case_id}")
+        seen.add(case_id)
 
-    # 3. 解析 JSON
-    try:
-        medical_record = parse_json_response(raw_text)
-    except Exception as e:
-        return {
-            "case_id": case_id, "status": "failed", "medical_record": None,
-            "error": {"code": "JSON_PARSE_ERROR", "message": "模型没吐合法的JSON"}
-        }
 
-    # 4. 交给 C 去校验（C 如果校验不过，会抛异常，B 直接拦截）
-    try:
-        # C 的代码必须在这个函数里完成所有的溯源、红线拦截
-        validate_record(medical_record, sources) 
-    except Exception as e:
-        return {
-            "case_id": case_id, "status": "failed", "medical_record": None,
-            "error": {"code": "VALIDATION_ERROR", "message": str(e)}
-        }
-
-    # 5. 校验全过，返回成功
+def case_error(case_id, code, message):
     return {
-        "case_id": case_id, "status": "success", "medical_record": medical_record, "error": None
+        "case_id": case_id,
+        "status": "failed",
+        "medical_record": None,
+        "error": {"code": code, "message": message},
     }
 
+
+def validate_case_content(case):
+    case_id = case.get("case_id", "")
+    record_cutoff = case.get("record_cutoff")
+    if not isinstance(record_cutoff, str) or not record_cutoff.strip():
+        return None, case_error(case_id, "CASE_CONTENT_ERROR", "记录截止时间无效")
+    sources = case.get("sources")
+    if not isinstance(sources, list) or not sources:
+        return None, case_error(case_id, "CASE_CONTENT_ERROR", "资料片段缺失")
+    seen = set()
+    for source in sources:
+        if not isinstance(source, dict):
+            return None, case_error(case_id, "CASE_CONTENT_ERROR", "资料片段格式无效")
+        source_id = source.get("source_id")
+        content = source.get("content")
+        if not isinstance(source_id, str) or not source_id.strip():
+            return None, case_error(case_id, "CASE_CONTENT_ERROR", "资料片段标识缺失")
+        if source_id in seen:
+            return None, case_error(case_id, "CASE_CONTENT_ERROR", "资料片段标识重复")
+        if not isinstance(content, str) or not content.strip():
+            return None, case_error(case_id, "CASE_CONTENT_ERROR", "资料片段内容为空")
+        seen.add(source_id)
+    return {"case_id": case_id, "record_cutoff": record_cutoff, "sources": sources}, None
+
+
+def process_case(case):
+    case_data, error = validate_case_content(case)
+    if error is not None:
+        return error
+
+    case_id = case_data["case_id"]
+    messages = build_messages(case_id, case_data["record_cutoff"], case_data["sources"])
+
+    try:
+        raw_text = call_llm(case_id, messages)
+    except Exception as exc:
+        return case_error(case_id, "MODEL_ERROR", str(exc))
+
+    try:
+        medical_record = parse_json_response(raw_text)
+    except Exception:
+        return case_error(case_id, "JSON_PARSE_ERROR", "模型返回的内容无法解析为合法 JSON")
+
+    try:
+        from src.validation import validate_record
+
+        validate_record(medical_record, case_data["sources"])
+    except Exception as exc:
+        return case_error(case_id, "VALIDATION_ERROR", str(exc))
+
+    return {
+        "case_id": case_id,
+        "status": "success",
+        "medical_record": medical_record,
+        "error": None,
+    }
+
+
 def main():
-    # 1. 读取输入文件
+    RUN_LOGS.clear()
+    get_config()
+
     try:
-        with open(INPUT_FILE, "r", encoding="utf-8") as f:
-            cases = json.load(f)
-            if not isinstance(cases, list):
-                raise ValueError("input.json 顶层必须是数组")
-    except Exception as e:
-        print(f"任务级错误：读取 input.json 失败 -> {e}")
+        system_prompt = load_system_prompt()
+    except Exception as exc:
+        print(f"任务级错误：加载提示词失败 -> {exc}")
         sys.exit(1)
 
-    # 处理空输入情况
-    if len(cases) == 0:
-        with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
-            json.dump([], f)
-        with open(LOG_FILE, "w", encoding="utf-8") as f:
-            json.dump([], f)
-        print("输入为空，已生成空的 output.json")
+    if not system_prompt.strip():
+        print("任务级错误：提示词为空")
+        sys.exit(1)
+
+    try:
+        with open(INPUT_FILE, "r", encoding="utf-8") as handle:
+            cases = json.load(handle)
+        validate_input(cases)
+    except Exception as exc:
+        print(f"任务级错误：读取或校验 input.json 失败 -> {exc}")
+        sys.exit(2)
+
+    try:
+        if len(cases) == 0:
+            write_json_atomic(OUTPUT_FILE, TEMP_FILE, [])
+            write_json_atomic(LOG_FILE, LOG_TEMP_FILE, [])
+            print("输入为空，已生成空的 output.json")
+            sys.exit(0)
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+            results = list(executor.map(process_case, cases))
+
+        for entry in RUN_LOGS:
+            entry["prompt_version"] = PROMPT_VERSION
+
+        write_json_atomic(OUTPUT_FILE, TEMP_FILE, results)
+        write_json_atomic(LOG_FILE, LOG_TEMP_FILE, RUN_LOGS)
+        success = sum(1 for record in results if record["status"] == "success")
+        failed = len(results) - success
+        print(f"处理完成！成功: {success} 例，失败: {failed} 例。")
         sys.exit(0)
-
-    # 2. 多线程并发处理病例
-    results = []
-    with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-        # executor.map 会保持输入和输出的顺序一致
-        results = list(executor.map(process_case, cases))
-
-    # 3. 安全落盘：先写临时文件，再替换正式文件
-    try:
-        with open(TEMP_FILE, "w", encoding="utf-8") as f:
-            json.dump(results, f, ensure_ascii=False, indent=2)
-        import os
-        os.replace(TEMP_FILE, OUTPUT_FILE)
-        
-        # 4. 写入运行日志 run_log.json
-        with open(LOG_FILE, "w", encoding="utf-8") as f:
-            json.dump(RUN_LOGS, f, ensure_ascii=False, indent=2)
-            
-        print(f"处理完成！成功: {sum(1 for r in results if r['status']=='success')} 例，失败: {sum(1 for r in results if r['status']=='failed')} 例。")
-        sys.exit(0) # 退出码 0
-        
-    except Exception as e:
-        print(f"任务级错误：结果写入失败 -> {e}")
+    except SystemExit:
+        raise
+    except Exception as exc:
+        print(f"任务级错误：结果写入失败 -> {exc}")
         sys.exit(1)
+
 
 if __name__ == "__main__":
     main()

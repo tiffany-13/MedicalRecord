@@ -1,35 +1,51 @@
-SYSTEM_PROMPT = """你是一名严谨的临床医生，正在撰写首次病程记录。
+import json
+from pathlib import Path
 
-【硬性约束】
-1. 只能依据“资料”中出现的信息作答，绝对不能虚构资料中没有的内容。
-2. 资料中明确写“未提供/未见/未查”的信息，必须如实写为“未提供”或“待补充”，绝对不能写成“正常”。
-3. “计划”只能写“拟行/建议/待完善”的诊疗安排，绝对不能写成“已实施/已完成”。
-4. 输出必须是合法的 JSON 对象，不能包含 Markdown 标记（不要 ```json 代码块），不能有任何 JSON 之外的文字。
+PROMPT_VERSION = "v1-draft"
+FEW_SHOT_INJECTION_ENABLED = False
 
-【输出字段】
-必须且只能包含以下五个字段：
-- case_features：字符串。概括患者的关键临床特点（主诉、症状、体征、关键检验/检查异常、既往史等）。
-- diagnostic_discussion：字符串。初步诊断、诊断依据、鉴别诊断思路。
-- plan：字符串。下一步拟完善的检查、拟采取的治疗与随访计划。
-- evidence：数组。支撑上述结论的证据条目，**每条必须且只能包含以下三个字段**：
-  - statement：字符串，可核对的事实或判断，简短清楚。
-  - source_ids：数组，该条依据对应的一个或多个 source_id（如 ["S01"]），编号必须来自资料中已有的编号。
-  - kind：字符串，只能是 "fact"（资料中的事实）或 "inference"（基于资料的推断或推断边界）。
-- review_items：数组。需要复核或补充的信息清单（字符串数组），例如资料中缺失但影响判断的关键信息。没有待核事项时写 []。
+PROMPT_DIR = Path(__file__).resolve().parent
+SYSTEM_PROMPT_FILE = PROMPT_DIR / "system_v1.txt"
+FEW_SHOT_FILE = PROMPT_DIR / "few_shot_v1.json"
 
-【输出示例（仅示意结构，必须严格按此 JSON 结构输出）】
-{
-  "case_features": "...",
-  "diagnostic_discussion": "...",
-  "plan": "...",
-  "evidence": [
-    {"statement": "...", "source_ids": ["S01"], "kind": "fact"},
-    {"statement": "...", "source_ids": ["S03", "S04"], "kind": "inference"}
-  ],
-  "review_items": ["...", "..."]
-}"""
+_SYSTEM_PROMPT = None
 
-# === 这是给 D 预留的接口，D 后续换成自己的提示词 ===
-PROMPT_STEP1 = "你是一个医生。请仅依据资料，提取【病例特点】（重要阳性、有价值的阴性）。绝对不能把未提供写成正常。"
 
-PROMPT_STEP2 = "你是一个医生。请根据资料和已生成的病例特点，生成【诊疗计划】和【拟诊讨论】，并输出完整的 JSON 格式（包含 case_features, diagnostic_discussion, plan, evidence, review_items）。"
+def load_system_prompt():
+    global _SYSTEM_PROMPT
+    if _SYSTEM_PROMPT is None:
+        _SYSTEM_PROMPT = SYSTEM_PROMPT_FILE.read_text(encoding="utf-8").strip()
+    return _SYSTEM_PROMPT
+
+
+def load_few_shot():
+    if not FEW_SHOT_INJECTION_ENABLED:
+        return []
+    data = json.loads(FEW_SHOT_FILE.read_text(encoding="utf-8"))
+    return data.get("examples", [])
+
+
+def build_user_content(case_id, record_cutoff, sources):
+    lines = [f"病例编号：{case_id}", f"记录截止时间：{record_cutoff}", "", "资料如下："]
+    for source in sources:
+        lines.append(f"[{source['source_id']}] {source['content']}")
+    return "\n".join(lines)
+
+
+def build_messages(case_id, record_cutoff, sources):
+    messages = [{"role": "system", "content": load_system_prompt()}]
+    for example in load_few_shot():
+        messages.append({"role": "user", "content": example["case_input"]})
+        messages.append(
+            {
+                "role": "assistant",
+                "content": json.dumps(example["expected_output"], ensure_ascii=False),
+            }
+        )
+    messages.append(
+        {
+            "role": "user",
+            "content": build_user_content(case_id, record_cutoff, sources),
+        }
+    )
+    return messages

@@ -4,3 +4,7 @@ __pycache__/
 output.json
 run_log.json
 output_tmp.json
+run_log_tmp.json
+fixtures/
+documents/
+.codeartsdoer/
