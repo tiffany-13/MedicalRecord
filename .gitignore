@@ -1,6 +1,12 @@
 .env
+.venv311/
 __pycache__/
 *.pyc
 output.json
 run_log.json
 output_tmp.json
+run_log_tmp.json
+fixtures/
+documents/*
+!documents/临床智录_Mock测试运行指南.md
+.codeartsdoer/

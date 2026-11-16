@@ -1,0 +1,35 @@
+{
+  "version": "v1-draft",
+  "created_at": "2026-11-14",
+  "note": "示例为自行构造，用于示范格式与否定关系保留，非比赛答案",
+  "injection_enabled": false,
+  "examples": [
+    {
+      "example_id": "EX01",
+      "case_input": "病例编号：SYN-01\n记录截止时间：T0\n\n资料如下：\n[S01] 男，45岁，咳嗽3天，无发热。\n[S02] 血压 120/80 mmHg，双肺呼吸音清。\n[S03] 白细胞 6.5×10^9/L。",
+      "expected_output": {
+        "case_features": "中年男性，咳嗽3天，无发热；血压 120/80 mmHg，双肺呼吸音清；白细胞 6.5×10^9/L。体温记录未提供。",
+        "diagnostic_discussion": "现有资料支持上呼吸道感染可能；体温和咽部检查未提供，不能排除支气管炎等，需进一步检查明确。",
+        "plan": "建议补充体温和咽部检查，复查血常规；观察咳嗽和体温变化。",
+        "evidence": [
+          {
+            "statement": "咳嗽3天，无发热",
+            "source_ids": ["S01"],
+            "kind": "fact"
+          },
+          {
+            "statement": "血压 120/80 mmHg，双肺呼吸音清",
+            "source_ids": ["S02"],
+            "kind": "fact"
+          },
+          {
+            "statement": "体温记录未提供，上呼吸道感染与支气管炎尚不能区分",
+            "source_ids": ["S01", "S03"],
+            "kind": "inference"
+          }
+        ],
+        "review_items": ["体温记录未提供", "咽部检查未提供"]
+      }
+    }
+  ]
+}
