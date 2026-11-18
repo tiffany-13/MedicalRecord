@@ -89,8 +89,8 @@ payload_keys=PASS
 root_untouched=PASS
 env_clean=PASS
 config_mode= injected
-fixture_output= fixtures/output_stub.json
-fixture_log= fixtures/run_log_stub.json
+fixture_output= fixtures/output.json
+fixture_log= fixtures/run_log.json
 FIXTURE: not a submission result
 ```
 

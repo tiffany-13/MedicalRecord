@@ -6,6 +6,7 @@ from pathlib import Path
 
 import requests
 from dotenv import dotenv_values
+import src.run_config as run_config
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 RUN_LOGS = []
@@ -56,17 +57,106 @@ def _next_call_index(case_id):
     return sum(1 for entry in RUN_LOGS if entry.get("case_id") == case_id) + 1
 
 
+class ParameterRejectedError(Exception):
+    code = "PARAMETER_REJECTED"
+
+    def __init__(self, parameter, detail):
+        self.parameter = parameter
+        self.detail = detail
+        super().__init__(f"PARAMETER_REJECTED: endpoint rejected parameter '{parameter}': {detail}")
+
+
+def _build_payload(model_name, messages):
+    payload = {
+        "model": model_name,
+        "messages": messages,
+    }
+    payload.update(run_config.request_parameters())
+    return payload
+
+
+def _response_text(response):
+    try:
+        text = response.text
+    except Exception:
+        text = ""
+    return text or ""
+
+
+def _find_rejected_parameter(response_text, payload):
+    text = response_text.lower()
+    candidates = []
+    for field in ("seed", "temperature", "response_format", "chat_template_kwargs", "stream"):
+        if field in payload and (field.lower() in text or field.replace("_", "-") in text):
+            candidates.append(field)
+    aliases = ("enable_thinking", "thinking")
+    if "chat_template_kwargs" in payload:
+        if any(alias in text for alias in aliases):
+            candidates.append("thinking")
+    if not candidates:
+        return None
+    return candidates[0]
+
+
+def _raise_parameter_rejection(response, payload):
+    status_code = getattr(response, "status_code", 0)
+    if status_code < 400:
+        return
+    response_text = _response_text(response)
+    text = response_text.lower()
+    parameter_error = any(
+        phrase in text
+        for phrase in (
+            "unsupported parameter",
+            "unknown parameter",
+            "unrecognized",
+            "does not support",
+            "not supported",
+            "invalid parameter",
+            "unexpected keyword",
+            "extra inputs",
+        )
+    )
+    parameter = _find_rejected_parameter(response_text, payload)
+    if parameter_error or parameter:
+        if parameter is None:
+            parameter = "unknown"
+        run_config.record_rejection(parameter)
+        raise ParameterRejectedError(parameter, response_text.strip() or f"HTTP {status_code}")
+
+
+def _record_sent_parameters(payload):
+    for field in ("seed", "temperature", "response_format", "chat_template_kwargs", "stream"):
+        if field in payload:
+            param = "thinking" if field == "chat_template_kwargs" else field
+            run_config.record_acceptance(param)
+
+
+def _run_log_entry(case_id, call_index, attempt, model_name, start_time, status, error=None, error_code=None):
+    entry = {
+        "case_id": case_id,
+        "call_index": call_index,
+        "attempt": attempt,
+        "model": model_name,
+        "timestamp": start_time,
+        "duration_seconds": round(time.time() - start_time, 2),
+        "status": status,
+    }
+    if error is not None:
+        entry["error"] = error
+    if error_code is not None:
+        entry["error_code"] = error_code
+    entry.update(run_config.envelope_for_log())
+    return entry
+
+
 def call_llm(case_id, messages, retries=3, timeout=120):
     model_name, endpoint = get_config()
 
     session = requests.Session()
     session.trust_env = False
 
-    payload = {
-        "model": model_name,
-        "messages": messages,
-        "stream": False,
-    }
+    payload = _build_payload(model_name, messages)
 
     headers = {"Content-Type": "application/json"}
 
@@ -80,50 +170,41 @@ def call_llm(case_id, messages, retries=3, timeout=120):
                 timeout=timeout,
                 headers=headers,
             )
+            _raise_parameter_rejection(response, payload)
             response.raise_for_status()
             content = response.json()["choices"][0]["message"]["content"]
+            _record_sent_parameters(payload)
 
             RUN_LOGS.append(
-                {
-                    "case_id": case_id,
-                    "call_index": call_index,
-                    "attempt": attempt + 1,
-                    "model": model_name,
-                    "timestamp": start_time,
-                    "duration_seconds": round(time.time() - start_time, 2),
-                    "status": "success",
-                }
+                _run_log_entry(
+                    case_id, call_index, attempt + 1, model_name, start_time, "success"
+                )
             )
             return content
 
         except Exception as exc:
+            error_code = getattr(exc, "code", None)
             RUN_LOGS.append(
-                {
-                    "case_id": case_id,
-                    "call_index": call_index,
-                    "attempt": attempt + 1,
-                    "model": model_name,
-                    "timestamp": start_time,
-                    "duration_seconds": round(time.time() - start_time, 2),
-                    "status": "failed",
-                    "error": str(exc),
-                }
+                _run_log_entry(
+                    case_id,
+                    call_index,
+                    attempt + 1,
+                    model_name,
+                    start_time,
+                    "failed",
+                    error=str(exc),
+                    error_code=error_code,
+                )
             )
+            if isinstance(exc, ParameterRejectedError):
+                raise
             if attempt == retries - 1:
                 raise Exception(f"MODEL_ERROR: {exc}") from exc
 
 
 def mock_llm_success(case_id, messages):
     RUN_LOGS.append(
-        {
-            "case_id": case_id,
-            "call_index": 1,
-            "attempt": 1,
-            "model": "fixture",
-            "timestamp": time.time(),
-            "duration_seconds": 0.1,
-            "status": "success",
-        }
+        _run_log_entry(case_id, 1, 1, "fixture", time.time(), "success")
     )
 
     mock_response_json = """

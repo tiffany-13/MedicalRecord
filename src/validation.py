@@ -12,6 +12,22 @@
 import re
 
 
+# 赛规校验规则标识。内部检测保留原有红线编号，同时暴露稳定规则 ID。
+VR_RULE_IDS = {
+    "schema": "VR-1",
+    "source_trace": "VR-2",
+    "negation": "VR-14",
+    "fabrication": "VR-8",
+    "plan_done": "VR-13",
+    "specific_medication": "VR-5",
+    "timing": "VR-9",
+    "insufficient": "VR-7",
+    "numeric": "VR-10",
+    "patient_denial": "VR-11",
+    "generic": "VR-15",
+}
+
+
 # ---------------------------------------------------------------------------
 # 一、模块级常量
 # ---------------------------------------------------------------------------
@@ -128,6 +144,11 @@ def _truncate_snippet(text):
     if len(text) <= MAX_SNIPPET_LEN:
         return text
     return text[:MAX_SNIPPET_LEN] + "…"
+
+
+def _rule_error(rule_key, red_line, detail):
+    rule_id = VR_RULE_IDS[rule_key]
+    return ValueError(f"[{rule_id}] {red_line}: {detail}")
 
 
 def _log_debug(rule_name, detail):
@@ -371,6 +392,26 @@ def _detect_label_mismatch(medical_record, sources_text, errors):
 def _check_red_line_1(medical_record, original_sources):
     """红线1：否定关系被改写。"""
     sources_text = _joined_sources_text(original_sources)
+    gen_text = " ".join(_all_text_values(medical_record))
+
+    # 患者否认是主观陈述，不得改写为客观阴性或正常检查结果。
+    if "患者否认" in sources_text:
+        for affirm in ("阴性", "客观阴性", "正常", "无异常"):
+            if affirm in gen_text:
+                raise _rule_error(
+                    "patient_denial",
+                    "红线1",
+                    f"患者否认不得改写为客观表述 '{affirm}'",
+                )
+
+    # 明确正常的资料应被保留为正常，不按缺失处理。
+    explicitly_normal = any(
+        phrase in sources_text
+        for phrase in ("明确正常", "正常", "无异常", "未见异常")
+    )
+    if explicitly_normal:
+        return
+
     # 找出 sources 中的否定表述片段
     negation_phrases = []
     for term in NEGATION_TERMS:
@@ -390,9 +431,10 @@ def _check_red_line_1(medical_record, original_sources):
             # 保守起见，仅当 sources 明确含"未提供/不详"且生成文本含"正常/否认"时告警
             for neg in ("未提供", "不详", "未见", "未"):
                 if neg in sources_text and affirm in ("正常", "否认", "无异常", "未见异常"):
-                    raise ValueError(
-                        f"红线1: 否定关系被改写: "
-                        f"原文含 '{neg}'，输出出现 '{affirm}'"
+                    raise _rule_error(
+                        "negation",
+                        "红线1",
+                        f"否定关系被改写: 原文含 '{neg}'，输出出现 '{affirm}'",
                     )
 
     _log_debug("red_line_1", "否定关系保留")
@@ -413,15 +455,19 @@ def _check_red_line_2(medical_record, original_sources):
     # 检查项：生成文本出现但 sources 未提及
     for term in KNOWN_EXAM_TERMS:
         if term in fact_text and term not in sources_text:
-            raise ValueError(
-                f"红线2: 凭空补写: 检查项 '{term}' 未见于原始资料"
+            raise _rule_error(
+                "fabrication",
+                "红线2",
+                f"凭空补写: 检查项 '{term}' 未见于原始资料",
             )
 
     # 用药/操作：生成文本出现但 sources 未提及
     for term in KNOWN_DRUG_TERMS:
         if term in fact_text and term not in sources_text:
-            raise ValueError(
-                f"红线2: 凭空补写: 用药/操作 '{term}' 未见于原始资料"
+            raise _rule_error(
+                "fabrication",
+                "红线2",
+                f"凭空补写: 用药/操作 '{term}' 未见于原始资料",
             )
 
     _log_debug("red_line_2", "无凭空补写")
@@ -432,11 +478,20 @@ def _check_red_line_3(medical_record, original_sources):
     plan = medical_record.get("plan", "")
     if not isinstance(plan, str):
         return
+    # 具体药物启动、停用、调整、替换及剂量/给药方案不允许。
+    medication_actions = ("启动", "停用", "调整", "替换", "剂量", "给药途径", "给药速度", "给药频率")
+    medication_names = tuple(term for term in KNOWN_DRUG_TERMS if term in plan)
+    if medication_names or any(action in plan for action in medication_actions):
+        raise _rule_error(
+            "specific_medication",
+            "红线3",
+            "计划包含具体药物启动、停用、调整、替换或给药方案",
+        )
     for term in PLAN_DONE_TERMS:
         if term in plan:
             idx = plan.find(term)
             snippet = _truncate_snippet(plan[max(0, idx - 10):idx + len(term) + 10])
-            raise ValueError(f"红线3: 计划写成已实施: {snippet}")
+            raise _rule_error("plan_done", "红线3", f"计划写成已实施: {snippet}")
     _log_debug("red_line_3", "计划表述合规")
 
 
@@ -445,8 +500,10 @@ def _check_red_line_4(medical_record, original_sources):
     gen_text = " ".join(_all_text_values(medical_record))
     for term in FUTURE_INFO_TERMS:
         if term in gen_text:
-            raise ValueError(
-                f"红线4: 时序颠倒: 提前引入后续信息 '{term}'"
+            raise _rule_error(
+                "timing",
+                "红线4",
+                f"时序颠倒: 提前引入后续信息 '{term}'",
             )
     _log_debug("red_line_4", "时序正常")
 
@@ -471,12 +528,14 @@ def _check_red_line_5(medical_record, original_sources):
     # 输出是否含确定结论且无不确定性表述
     for term in DEFINITIVE_TERMS:
         if term in gen_text:
-            raise ValueError(
-                f"红线5: 信息不足硬下结论: 出现 '{term}' 但无不确定性表述"
+            raise _rule_error(
+                "insufficient",
+                "红线5",
+                f"信息不足硬下结论: 出现 '{term}' 但无不确定性表述",
             )
 
     # 资料明显不足但输出完全没有不确定性表述，也视为硬下结论
-    raise ValueError("红线5: 信息不足硬下结论: 缺少不确定性表述")
+    raise _rule_error("insufficient", "红线5", "信息不足硬下结论: 缺少不确定性表述")
 
 
 def _check_red_line_6(numeric_errors):
@@ -484,7 +543,7 @@ def _check_red_line_6(numeric_errors):
     if numeric_errors:
         first = numeric_errors[0]
         detail = _truncate_snippet(first.get("detail", ""))
-        raise ValueError(f"红线6: 数值/单位/方向错误: {detail}")
+        raise _rule_error("numeric", "红线6", f"数值/单位/方向错误: {detail}")
     _log_debug("red_line_6", "数值/单位/方向无误")
 
 
@@ -511,10 +570,10 @@ def _check_red_line_7(medical_record, original_sources):
         # 进一步确认是否为泛化模板
         for phrase in GENERIC_PHRASES:
             if phrase in gen_text:
-                raise ValueError(f"红线7: 泛化套话: 含 '{phrase}' 且无本例特异信息")
+                raise _rule_error("generic", "红线7", f"泛化套话: 含 '{phrase}' 且无本例特异信息")
         # 即使没有模板短语，但完全无特异信息也告警
         if specific_values or specific_terms:
-            raise ValueError("红线7: 泛化套话: 缺少本例特异信息")
+            raise _rule_error("generic", "红线7", "泛化套话: 缺少本例特异信息")
 
     _log_debug("red_line_7", "含本例特异信息")
 

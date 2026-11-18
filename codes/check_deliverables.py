@@ -51,7 +51,8 @@ def check_prompt():
     add("prompt_v12_char_count", len(text.rstrip("\n")) == V12_CHARS, str(len(text.rstrip("\n"))))
     add("prompt_v12_byte_count", len(raw) == V12_BYTES, str(len(raw)))
     add("prompt_v12_sha256", hashlib.sha256(raw).hexdigest() == V12_SHA, hashlib.sha256(raw).hexdigest()[:16])
-    add("prompt_v12_lf_only", b"\r\n" not in raw, f"crlf={raw.count(b'\r\n')}")
+    crlf_count = raw.count(b"\r\n")
+    add("prompt_v12_lf_only", b"\r\n" not in raw, f"crlf={crlf_count}")
     add("prompt_v12_le_4000", 0 < len(text.rstrip("\n")) <= 4000, str(len(text.rstrip("\n"))))
 
     markers = ["# 角色", "# 资料边界", "# 输出内容", "# 事实与推断", "# 输出格式", "# 五条医学红线"]
@@ -168,7 +169,7 @@ def _has_key(value, keys):
 
 
 def check_fixture_envelopes():
-    paths = ["fixtures/output_stub.json", "fixtures/run_log_stub.json"]
+    paths = ["fixtures/output.json", "fixtures/run_log.json"]
     for path in paths:
         raw = read(path)
         try:
@@ -188,7 +189,7 @@ def check_fixture_envelopes():
         add(f"fixture_payload_array_{stem}", isinstance(data.get("payload"), list))
         add(f"fixture_no_transport_{stem}", not _has_key(data, {"choices", "message", "usage"}))
     try:
-        log_doc = json.loads(read("fixtures/run_log_stub.json"))
+        log_doc = json.loads(read("fixtures/run_log.json"))
         entries = log_doc.get("payload", [])
         add("fixture_log_versions", all(e.get("prompt_version") == "v1-draft" for e in entries))
     except Exception as exc:

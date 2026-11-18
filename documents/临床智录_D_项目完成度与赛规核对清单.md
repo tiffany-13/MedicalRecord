@@ -42,7 +42,7 @@ D 的提示词、文档、安全套件、loader guard、fixture envelope 和审�
 - `codes/check_deliverables.py`：90+ 项只读检查，含 prompt/loader/registry/D9/D12/D13/D14/D23/D29/D30/D33–D37/env/hosts/fixtures/overlap/claims；支持 `--check` 与 `--list`。
 - `codes/mock_run.py`：fixture 为 envelope（`label`/`source_transport`/`generated_at`/`prompt_version`/`payload`）；不再给 `main` 的路径常量赋值；`--env` 遇到既有 `.env` 先拒绝、运行后删除。
 - `codes/safety_suite.py`：ST-1…ST-10，stub 默认，真实模式门控。
-- `fixtures/output_stub.json` SHA-256 `a878cecc…`；`fixtures/run_log_stub.json` `8b62247c…`；根产物仍 absent。
+- `fixtures/output.json`；`fixtures/run_log.json`；根产物仍 absent。
 
 ### 2.3 实测结果
 

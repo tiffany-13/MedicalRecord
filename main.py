@@ -6,6 +6,8 @@ from pathlib import Path
 
 from prompts.prompt_v1 import PROMPT_VERSION, build_messages, load_system_prompt
 from src.api_client import RUN_LOGS, call_llm, get_config, parse_json_response
+from src.api_client import ParameterRejectedError
+import src.run_config as run_config
 
 BASE_DIR = Path(__file__).resolve().parent
 INPUT_FILE = BASE_DIR / "input.json"
@@ -80,6 +82,8 @@ def process_case(case):
 
     try:
         raw_text = call_llm(case_id, messages)
+    except ParameterRejectedError as exc:
+        return case_error(case_id, exc.code, str(exc))
     except Exception as exc:
         return case_error(case_id, "MODEL_ERROR", str(exc))
 
@@ -103,8 +107,15 @@ def process_case(case):
     }
 
 
+def add_run_log_metadata():
+    for entry in RUN_LOGS:
+        entry["prompt_version"] = PROMPT_VERSION
+        entry.update(run_config.envelope_for_log())
+
+
 def main():
     RUN_LOGS.clear()
+    run_config.start_run()
     get_config()
 
     try:
@@ -135,8 +146,7 @@ def main():
         with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
             results = list(executor.map(process_case, cases))
 
-        for entry in RUN_LOGS:
-            entry["prompt_version"] = PROMPT_VERSION
+        add_run_log_metadata()
 
         write_json_atomic(OUTPUT_FILE, TEMP_FILE, results)
         write_json_atomic(LOG_FILE, LOG_TEMP_FILE, RUN_LOGS)

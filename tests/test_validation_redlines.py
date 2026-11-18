@@ -24,6 +24,19 @@ class TestRedLine1:
         with pytest.raises(ValueError, match="红线1"):
             _check_red_line_1(record, sources)
 
+    def test_documented_normal_not_false_positive(self):
+        record = make_valid_medical_record()
+        record["case_features"] = "尿常规明确正常。血红蛋白 82 g/L。"
+        sources = [{"source_id": "S01", "content": "尿常规明确正常"}]
+        _check_red_line_1(record, sources)
+
+    def test_patient_denial_is_not_objective_negative(self):
+        record = make_valid_medical_record()
+        record["case_features"] = "胸痛客观阴性，血红蛋白 82 g/L。"
+        sources = [{"source_id": "S01", "content": "患者否认胸痛"}]
+        with pytest.raises(ValueError, match=r"VR-11"):
+            _check_red_line_1(record, sources)
+
 
 class TestRedLine2:
     def test_passes_when_no_fabrication(self):
@@ -58,6 +71,13 @@ class TestRedLine3:
         record["plan"] = "已予补铁治疗，已完成血常规复查。"
         sources = make_valid_sources()
         with pytest.raises(ValueError, match="红线3"):
+            _check_red_line_3(record, sources)
+
+    def test_violation_specific_medication_action(self):
+        record = make_valid_medical_record()
+        record["plan"] = "启动补铁，剂量为口服每日一次。"
+        sources = make_valid_sources()
+        with pytest.raises(ValueError, match=r"VR-5"):
             _check_red_line_3(record, sources)
 
 

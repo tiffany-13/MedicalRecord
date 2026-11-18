@@ -82,6 +82,13 @@ def record_rejection(field):
         _OBSERVED[param] = "rejected-on-endpoint"
 
 
+def record_acceptance(field):
+    """Record that an endpoint accepted a request field on a successful call."""
+    param = _PARAM_ALIASES.get(field, field)
+    with _LOCK:
+        _OBSERVED[param] = "accepted-on-endpoint"
+
+
 # --- Envelope views ---------------------------------------------------------
 
 def request_parameters():

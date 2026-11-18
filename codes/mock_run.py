@@ -13,6 +13,7 @@ sys.path.insert(0, str(REPO_ROOT))
 
 import main
 import src.api_client as api
+import src.run_config as run_config
 from prompts.prompt_v1 import PROMPT_VERSION
 
 LABEL = "fixture, not a submission result"
@@ -96,10 +97,10 @@ def run(use_env):
 
     fixtures = REPO_ROOT / "fixtures"
     fixtures.mkdir(exist_ok=True)
-    output_path = fixtures / "output_stub.json"
-    output_temp = fixtures / "output_stub_tmp.json"
-    log_path = fixtures / "run_log_stub.json"
-    log_temp = fixtures / "run_log_stub_tmp.json"
+    output_path = fixtures / "output.json"
+    output_temp = fixtures / "output_tmp.json"
+    log_path = fixtures / "run_log.json"
+    log_temp = fixtures / "run_log_tmp.json"
 
     root_files = [REPO_ROOT / "output.json", REPO_ROOT / "run_log.json"]
     root_before = {path.name: digest(path) for path in root_files}
@@ -126,10 +127,12 @@ def run(use_env):
         if use_env:
             api.get_config()
         main.RUN_LOGS.clear()
+        run_config.start_run()
         with concurrent.futures.ThreadPoolExecutor(max_workers=main.MAX_WORKERS) as executor:
             results = list(executor.map(main.process_case, cases))
         for entry in main.RUN_LOGS:
             entry["prompt_version"] = PROMPT_VERSION
+            entry.update(run_config.envelope_for_log())
         main.write_json_atomic(output_path, output_temp, envelope(results))
         main.write_json_atomic(log_path, log_temp, envelope(main.RUN_LOGS))
         exit_code = 0
@@ -171,7 +174,8 @@ def run(use_env):
         "model_in_log": all(entry.get("model") == "mock-model" for entry in run_log),
         "no_authorization": "Authorization" not in captured.get("headers", {}),
         "content_type": captured.get("headers", {}).get("Content-Type") == "application/json",
-        "payload_keys": sorted(captured.get("payload", {}).keys()) == ["messages", "model", "stream"],
+        "payload_keys": sorted(captured.get("payload", {}).keys())
+        == ["messages", "model", "seed", "stream", "temperature"],
         "root_untouched": root_before == root_after,
         "env_clean": env_after == env_before,
         "output_envelope_keys": sorted(output_doc.keys())
