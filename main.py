@@ -85,7 +85,8 @@ def process_case(case):
     except ParameterRejectedError as exc:
         return case_error(case_id, exc.code, str(exc))
     except Exception as exc:
-        return case_error(case_id, "MODEL_ERROR", str(exc))
+        code = getattr(exc, "code", "MODEL_ERROR")
+        return case_error(case_id, code, str(exc))
 
     try:
         medical_record = parse_json_response(raw_text)

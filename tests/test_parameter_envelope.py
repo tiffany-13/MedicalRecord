@@ -1,4 +1,5 @@
 import pytest
+import requests
 import main
 
 import src.api_client as api
@@ -23,6 +24,7 @@ class FakeSession:
     response = None
     captured = None
     post_count = 0
+    exception = None
 
     def __init__(self):
         self.trust_env = True
@@ -30,6 +32,8 @@ class FakeSession:
     def post(self, endpoint, json, timeout, headers):
         FakeSession.post_count += 1
         FakeSession.captured = {"endpoint": endpoint, "json": json, "headers": headers}
+        if FakeSession.exception is not None:
+            raise FakeSession.exception
         return FakeSession.response
 
 
@@ -45,6 +49,7 @@ def reset_envelope(monkeypatch):
     monkeypatch.setattr(run_config, "THINKING", "server-default")
     FakeSession.captured = None
     FakeSession.post_count = 0
+    FakeSession.exception = None
 
 
 def test_accepted_parameter_is_payload_and_log(monkeypatch):
@@ -109,3 +114,42 @@ def test_omitted_parameters_are_not_sent(monkeypatch):
     assert status["temperature"]["endpoint"] == "not-sent"
     assert status["response_format"]["endpoint"] == "withheld-pending-acceptance"
     assert status["thinking"]["endpoint"] == "not-sent"
+
+
+@pytest.mark.parametrize(
+    ("status_code", "expected_code"),
+    [
+        (401, "MODEL_AUTH_ERROR"),
+        (403, "MODEL_AUTH_ERROR"),
+        (429, "MODEL_RATE_LIMIT"),
+        (500, "MODEL_SERVER_ERROR"),
+    ],
+)
+def test_http_failure_has_stable_error_code(monkeypatch, status_code, expected_code):
+    FakeSession.response = FakeResponse(status_code=status_code, text="service failure")
+
+    with pytest.raises(api.ModelRequestError) as exc:
+        api.call_llm("C1", [{"role": "user", "content": "test"}], retries=1)
+
+    assert exc.value.code == expected_code
+    assert api.RUN_LOGS[-1]["error_code"] == expected_code
+
+
+def test_timeout_has_stable_error_code(monkeypatch):
+    FakeSession.exception = requests.exceptions.Timeout("timed out")
+
+    with pytest.raises(api.ModelRequestError) as exc:
+        api.call_llm("C1", [{"role": "user", "content": "test"}], retries=1)
+
+    assert exc.value.code == "MODEL_TIMEOUT"
+    assert api.RUN_LOGS[-1]["error_code"] == "MODEL_TIMEOUT"
+
+
+def test_response_shape_has_stable_error_code(monkeypatch):
+    FakeSession.response = FakeResponse(payload={"unexpected": "shape"})
+
+    with pytest.raises(api.ModelRequestError) as exc:
+        api.call_llm("C1", [{"role": "user", "content": "test"}], retries=1)
+
+    assert exc.value.code == "MODEL_RESPONSE_ERROR"
+    assert api.RUN_LOGS[-1]["error_code"] == "MODEL_RESPONSE_ERROR"

@@ -66,6 +66,12 @@ class ParameterRejectedError(Exception):
         super().__init__(f"PARAMETER_REJECTED: endpoint rejected parameter '{parameter}': {detail}")
 
 
+class ModelRequestError(Exception):
+    def __init__(self, code, detail):
+        self.code = code
+        super().__init__(f"{code}: {detail}")
+
+
 def _build_payload(model_name, messages):
     payload = {
         "model": model_name,
@@ -171,8 +177,19 @@ def call_llm(case_id, messages, retries=3, timeout=120):
                 headers=headers,
             )
             _raise_parameter_rejection(response, payload)
-            response.raise_for_status()
-            content = response.json()["choices"][0]["message"]["content"]
+            if response.status_code == 401 or response.status_code == 403:
+                raise ModelRequestError("MODEL_AUTH_ERROR", "endpoint requires authentication or denies keyless access")
+            if response.status_code == 429:
+                raise ModelRequestError("MODEL_RATE_LIMIT", "endpoint rate limit reached")
+            if response.status_code >= 500:
+                raise ModelRequestError("MODEL_SERVER_ERROR", f"HTTP {response.status_code}")
+            if response.status_code < 200 or response.status_code >= 300:
+                raise ModelRequestError("MODEL_HTTP_ERROR", f"HTTP {response.status_code}")
+            try:
+                response_data = response.json()
+                content = response_data["choices"][0]["message"]["content"]
+            except (ValueError, KeyError, IndexError, TypeError):
+                raise ModelRequestError("MODEL_RESPONSE_ERROR", "missing choices[0].message.content")
             _record_sent_parameters(payload)
 
             RUN_LOGS.append(
@@ -183,6 +200,12 @@ def call_llm(case_id, messages, retries=3, timeout=120):
             return content
 
         except Exception as exc:
+            if isinstance(exc, requests.exceptions.Timeout):
+                exc = ModelRequestError("MODEL_TIMEOUT", "model request timed out")
+            elif isinstance(exc, requests.exceptions.ConnectionError):
+                exc = ModelRequestError("MODEL_CONNECTION_ERROR", "endpoint is unreachable")
+            elif isinstance(exc, requests.exceptions.RequestException):
+                exc = ModelRequestError("MODEL_REQUEST_ERROR", exc.__class__.__name__)
             error_code = getattr(exc, "code", None)
             RUN_LOGS.append(
                 _run_log_entry(
@@ -199,6 +222,8 @@ def call_llm(case_id, messages, retries=3, timeout=120):
             if isinstance(exc, ParameterRejectedError):
                 raise
             if attempt == retries - 1:
+                if isinstance(exc, ModelRequestError):
+                    raise exc
                 raise Exception(f"MODEL_ERROR: {exc}") from exc
 
 
