@@ -34,7 +34,7 @@ class TestCheckSourceTrace:
 
     def test_evidence_five_passes(self):
         record = make_valid_medical_record()
-        # 补到 5 条
+
         while len(record["evidence"]) < 5:
             record["evidence"].append({
                 "statement": "补充证据",
@@ -53,6 +53,6 @@ class TestCheckSourceTrace:
                 "kind": "fact",
             })
         sources = make_valid_sources()
-        _check_source_trace(record, sources)  # 不抛异常
+        _check_source_trace(record, sources)
         captured = capsys.readouterr()
         assert "条数偏多" in captured.out

@@ -10,20 +10,20 @@ from tests.conftest import make_valid_medical_record, make_valid_sources
 
 class TestPerformance:
     def test_single_record_under_200ms(self):
-        # 构造中等规模输入
+
         record = make_valid_medical_record()
-        # 扩展正文长度
+
         record["case_features"] = record["case_features"] + " 测试" * 100
         record["diagnostic_discussion"] = record["diagnostic_discussion"] + " 病因待查" * 100
         record["plan"] = record["plan"] + " 拟复查" * 100
-        # 扩展 evidence 到 5 条
+
         while len(record["evidence"]) < 5:
             record["evidence"].append({
                 "statement": "补充证据项",
                 "source_ids": ["S01"],
                 "kind": "fact",
             })
-        # 扩展 sources 到 10 条
+
         sources = make_valid_sources()
         for i in range(5, 11):
             sources.append({
@@ -59,5 +59,5 @@ class TestErrorMessageSpec:
             validate_record(record, sources)
         msg = str(exc_info.value)
         assert len(msg) > 0
-        # 错误信息应为简体中文（含中文字符）
+
         assert any("\u4e00" <= ch <= "\u9fff" for ch in msg)

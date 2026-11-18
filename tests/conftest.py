@@ -3,7 +3,7 @@
 import sys
 from pathlib import Path
 
-# 让 tests/ 能 import 到项目根目录的 src/ 与 prompts/
+
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 

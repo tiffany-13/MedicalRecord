@@ -19,21 +19,21 @@ import copy
 import threading
 import uuid
 
-# --- Envelope values --------------------------------------------------------
 
-# Request-level integer, sent at the top level of the JSON body.
+
+
 SEED = 42
 TEMPERATURE = 0.1
-# None = not sent (withheld-pending-acceptance). Switch to
-# JSON_OBJECT_RESPONSE_FORMAT only after a recorded decision. It constrains
-# syntax only; the five-field schema and red lines are unchanged by it.
+
+
+
 RESPONSE_FORMAT = None
 JSON_OBJECT_RESPONSE_FORMAT = {"type": "json_object"}
-# "server-default": send nothing, the server's configured mode applies.
-# "disabled": send chat_template_kwargs.enable_thinking = false.
+
+
 THINKING = "server-default"
 STREAM = False
-# No cache marker is ever placed in a request.
+
 PREFIX_CACHE_MARKER = "none"
 
 STATUS_VOCABULARY = (
@@ -47,7 +47,7 @@ STATUS_VOCABULARY = (
 
 _THINKING_MODES = ("server-default", "disabled")
 
-# Names an endpoint error may use for each parameter.
+
 _PARAM_ALIASES = {
     "chat_template_kwargs": "thinking",
     "enable_thinking": "thinking",
@@ -58,7 +58,7 @@ _RUN_ID = None
 _OBSERVED = {}
 
 
-# --- Run identity -----------------------------------------------------------
+
 
 def start_run():
     """Begin a run: new run_id, observations cleared. Returns the run_id."""
@@ -89,7 +89,7 @@ def record_acceptance(field):
         _OBSERVED[param] = "accepted-on-endpoint"
 
 
-# --- Envelope views ---------------------------------------------------------
+
 
 def request_parameters():
     """Top-level body fields contributed by the envelope (model/messages excluded)."""

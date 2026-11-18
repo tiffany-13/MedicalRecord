@@ -11,7 +11,7 @@ class TestValidateRecordE2E:
     def test_valid_record_passes(self):
         record = make_valid_medical_record()
         sources = make_valid_sources()
-        validate_record(record, sources)  # 不抛
+        validate_record(record, sources)
 
     def test_missing_field_raises(self):
         record = make_valid_medical_record()
@@ -53,6 +53,6 @@ class TestValidateRecordE2E:
     def test_deterministic(self):
         record = make_valid_medical_record()
         sources = make_valid_sources()
-        # 两次调用结论一致
+
         validate_record(record, sources)
-        validate_record(record, sources)  # 不抛即一致
+        validate_record(record, sources)
