@@ -9,4 +9,5 @@ run_log_tmp.json
 fixtures/
 documents/*
 !documents/临床智录_Mock测试运行指南.md
+!documents/临床智录_D_项目完成度与赛规核对清单.md
 .codeartsdoer/
