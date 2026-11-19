@@ -132,7 +132,8 @@ def run(use_env):
             results = list(executor.map(main.process_case, cases))
         for entry in main.RUN_LOGS:
             entry["prompt_version"] = PROMPT_VERSION
-            entry.update(run_config.envelope_for_log())
+            for key, value in run_config.envelope_for_log().items():
+                entry.setdefault(key, value)
         main.write_json_atomic(output_path, output_temp, envelope(results))
         main.write_json_atomic(log_path, log_temp, envelope(main.RUN_LOGS))
         exit_code = 0

@@ -124,7 +124,7 @@ def _raise_parameter_rejection(response, payload):
         )
     )
     parameter = _find_rejected_parameter(response_text, payload)
-    if parameter_error or parameter:
+    if parameter_error:
         if parameter is None:
             parameter = "unknown"
         run_config.record_rejection(parameter)

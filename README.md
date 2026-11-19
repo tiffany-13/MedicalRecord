@@ -63,6 +63,7 @@ python -m pip install -r requires.txt
 
 ```text
 python codes/mock_run.py
+python -m pip install pytest
 python -m pytest -q
 python codes/safety_suite.py --mode stub
 python codes/check_deliverables.py
@@ -109,13 +110,13 @@ python main.py
 - 从根目录读取正式 `input.json`。
 - 将病例信息发送给主办方指定模型，由真实模型分析。
 - 校验并将五字段病历和失败记录写入根目录 `output.json`。
-- 将调用状态、参数和 prompt 版本写入根目录 `run_log.json`。
+- 将调用状态、参数、prompt 版本和病例复核提醒写入根目录 `run_log.json`。
 
 正式模式还需要确认主办方参数限制、并发、超时、重试、调用预算、响应协议和提交限制。拿到正式环境前，不能声称真实端点已验收、参数已接受或正式产物已生成。
 
 ## 请求参数
 
-参数信封以 `src/run_config.py` 为唯一来源。请求包含 `model`、`messages` 和 `stream=false`；仅在参数已配置且端点支持时，才发送 `seed`、`temperature`、`response_format` 或 `chat_template_kwargs.enable_thinking=false`。
+请求参数统一在 `src/run_config.py` 配置。默认请求包含 `model`、`messages`、`stream=false`、`seed=42` 和 `temperature=0.1`。程序按配置直接发送参数，接口支持情况需要联调确认。把 seed 或 temperature 配为 None 可停止发送对应参数。response_format 和 Thinking 扩展参数按各自配置决定是否发送。
 
 当前配置值如下：
 
@@ -135,8 +136,7 @@ python main.py
 
 - 尚未配置真实端点或 API 密钥。
 - 尚未实测真实端点是否支持 seed、temperature、response_format 和 Thinking。
-- 本工作区尚未完成 Python 3.11 彩排。
-- 企业赛仅包含一个官方病例，因此不做均值、比例、方差、百分比或批量提升声称。
+- 包内公开教学样例数量有限，真实模型质量及改进收益仍需同条件对比验证。
 - 在真实运行或操作人员批准的运行生成之前，根目录下不存在 `output.json` 和 `run_log.json`。
 
 ## 当前代码可以做到
@@ -149,11 +149,11 @@ python main.py
 - 参数端点拒绝时返回清晰的 `PARAMETER_REJECTED` 状态，不静默忽略或重复发送被拒绝参数。
 - 解析模型返回的 `choices[0].message.content`，并重构为约定的五字段病历对象。
 - 校验五字段结构、依据来源、数值及部分否定、时序、计划、信息不足和泛化套话规则。
-- 校验异常携带稳定的 `VR-*` 规则标识。
+- 已注册规则使用统一的 `VR-*` 标识；基础结构、凭空补写和个体化检查也会给出中文原因。
 - 原子写入临时文件后再替换 `output.json` 和 `run_log.json`。
 - 在运行日志中记录 prompt 版本、参数状态、attempt、运行编号和模型标识。
 - 使用本地 Mock 验证请求结构、响应解析、校验、日志、容错和文件写入，不会访问真实模型。
-- 通过 81 条本地自动化测试、Mock 端到端检查和 ST-1 至 ST-10 安全夹具。
+- Python 3.11.9（`.venv311`）下 134 项自动化测试及本地 HTTP Mock 通过。安全夹具脚本另验证十例安全 Stub 的流程，未测量真实模型或坏输出的检出率。
 
 上述本地测试与 Mock 成果只能证明工程链路和代码校验，不代表真实模型质量、临床正确性或比赛成绩。
 
@@ -165,7 +165,7 @@ python main.py
 - 尚未实测真实并发、超时、重试、调用预算和错误重试规则。
 - 尚未生成真实比赛的根目录 `output.json` 和 `run_log.json`。
 - 尚未生成和复核正式的 `results.json` 与企业赛算法/结果 ZIP 包。
-- 尚未完成企业赛统一环境中的 Python 3.11 最终彩排和现场复现。
+- 已完成本机 Python 3.11.9（`.venv311`）彩排；尚未在企业赛统一环境中完成最终彩排和现场复现。
 - 尚未完成公开练习病例上的基线与改进版同条件对比。
 - 截止点过滤、数据提取和部分医疗启发式规则仍需更完整的实现与临床口径验证。
 - 提示词候选尚未由具名临床人员签署；若团队选择内部签署，需绑定最终文本 exact hash。
@@ -177,3 +177,35 @@ python main.py
 python codes/check_endpoint.py
 python main.py
 ```
+
+## 合并后的校验与日志约定
+
+C 校验接入指标、数值、单位和高低方向核对。evidence 中的数值分别与该条 source_ids 引用的片段核对。
+“尚未确诊”“核实是否已完成”等否定及待核语境保留。患者否认与客观检查结果分别核对。
+明确违规抛出 ValueError，主程序将该病例写为 VALIDATION_ERROR。派生术语及同指标多个结果等疑点生成复核提醒。
+validate_record(record, sources) 继续通过时返回 None，也可用 findings=[] 接收提醒。
+
+复核提醒写入该病例最后一次 API 尝试日志的 validation_findings，含 case_id、vr_id、field、detail、advisory。
+API 调用成功表示取得回复，病例是否通过校验以 output.json 为准。
+每次 API 尝试保存当时的参数状态，结束时补充元数据不会覆盖该次观察。
+
+| 规则编号 | 含义 |
+|---|---|
+| VR-1 | evidence 条目完整性 |
+| VR-2 | kind 取值 |
+| VR-3 | evidence 至少一条 |
+| VR-4 | review_items 必填 |
+| VR-5 | 鉴别方向复核提醒 |
+| VR-6 | 药物及侵入性计划检查 |
+| VR-7 | 诊断确定性 |
+| VR-8 | 来源编号存在性 |
+| VR-9 | 后续结果与时间边界 |
+| VR-10 | 数值、单位、指标及方向溯源 |
+| VR-11 | 派生术语复核提醒 |
+| VR-12 | 同指标多结果复核提醒 |
+| VR-13 | 计划与已完成状态 |
+| VR-14 | 缺失、否定与客观结果 |
+| VR-15 | 因果归因复核提醒 |
+
+accepted-on-endpoint 表示携带相应参数的请求成功返回，服务端是否实际执行该参数仍需核实。
+本地 Mock 返回成功只验证请求和日志接线。真实 Qwen 接口与 Python 3.11 比赛环境仍待验收。

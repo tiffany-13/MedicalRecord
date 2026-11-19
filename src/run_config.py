@@ -6,7 +6,7 @@ module, not read from .env: .env.example carries only MODEL_NAME and ENDPOINT.
 Status vocabulary used in parameter_status (and nowhere else):
   documented                  the organizer's Q&A describes the capability
   pending                     the endpoint's acceptance has not been observed
-  accepted-on-endpoint        a dated observation exists (never set by code here)
+  accepted-on-endpoint        a request containing the parameter returned successfully
   rejected-on-endpoint        the endpoint returned a parameter-class rejection
   not-sent                    the field is not placed in the request
   withheld-pending-acceptance the field is prepared but held back until accepted
@@ -83,7 +83,7 @@ def record_rejection(field):
 
 
 def record_acceptance(field):
-    """Record that an endpoint accepted a request field on a successful call."""
+    """Record successful transport with this field; model-side enforcement is unverified."""
     param = _PARAM_ALIASES.get(field, field)
     with _LOCK:
         _OBSERVED[param] = "accepted-on-endpoint"

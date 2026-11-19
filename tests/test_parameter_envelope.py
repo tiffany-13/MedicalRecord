@@ -153,3 +153,22 @@ def test_response_shape_has_stable_error_code(monkeypatch):
 
     assert exc.value.code == "MODEL_RESPONSE_ERROR"
     assert api.RUN_LOGS[-1]["error_code"] == "MODEL_RESPONSE_ERROR"
+
+
+def test_mentioning_a_parameter_in_auth_error_is_not_parameter_rejection():
+    FakeSession.response = FakeResponse(status_code=401, text="seed request authorization denied")
+    with pytest.raises(api.ModelRequestError) as exc:
+        api.call_llm("C1", [], retries=1)
+    assert exc.value.code == "MODEL_AUTH_ERROR"
+
+
+def test_final_metadata_preserves_each_attempt_parameter_state():
+    FakeSession.response = FakeResponse(status_code=500, text="temporary service failure")
+    with pytest.raises(api.ModelRequestError):
+        api.call_llm("C1", [], retries=1)
+    assert api.RUN_LOGS[0]["parameter_status"]["seed"]["endpoint"] == "pending"
+    FakeSession.response = FakeResponse(payload={"choices": [{"message": {"content": "ok"}}]})
+    api.call_llm("C2", [], retries=1)
+    main.add_run_log_metadata()
+    assert api.RUN_LOGS[0]["parameter_status"]["seed"]["endpoint"] == "pending"
+    assert api.RUN_LOGS[1]["parameter_status"]["seed"]["endpoint"] == "accepted-on-endpoint"

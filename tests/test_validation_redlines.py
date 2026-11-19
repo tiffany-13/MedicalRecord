@@ -5,7 +5,7 @@ import pytest
 from src.validation import (
     _check_red_line_1, _check_red_line_2, _check_red_line_3,
     _check_red_line_4, _check_red_line_5, _check_red_line_6,
-    _check_red_line_7,
+    _check_red_line_7, _check_vr_6,
 )
 from tests.conftest import make_valid_medical_record, make_valid_sources
 
@@ -34,7 +34,7 @@ class TestRedLine1:
         record = make_valid_medical_record()
         record["case_features"] = "胸痛客观阴性，血红蛋白 82 g/L。"
         sources = [{"source_id": "S01", "content": "患者否认胸痛"}]
-        with pytest.raises(ValueError, match=r"VR-11"):
+        with pytest.raises(ValueError, match=r"VR-14"):
             _check_red_line_1(record, sources)
 
 
@@ -77,8 +77,8 @@ class TestRedLine3:
         record = make_valid_medical_record()
         record["plan"] = "启动补铁，剂量为口服每日一次。"
         sources = make_valid_sources()
-        with pytest.raises(ValueError, match=r"VR-5"):
-            _check_red_line_3(record, sources)
+        with pytest.raises(ValueError, match=r"VR-6"):
+            _check_vr_6(record, sources)
 
 
 class TestRedLine4:

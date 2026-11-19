@@ -93,12 +93,20 @@ def process_case(case):
     except Exception:
         return case_error(case_id, "JSON_PARSE_ERROR", "模型返回的内容无法解析为合法 JSON")
 
+    findings = []
     try:
         from src.validation import validate_record
 
-        validate_record(medical_record, case_data["sources"])
+        validate_record(medical_record, case_data["sources"], findings=findings)
     except Exception as exc:
         return case_error(case_id, "VALIDATION_ERROR", str(exc))
+    finally:
+        for entry in reversed(RUN_LOGS):
+            if entry.get("case_id") == case_id:
+                entry["validation_findings"] = [
+                    {"case_id": case_id, **finding} for finding in findings
+                ]
+                break
 
     return {
         "case_id": case_id,
@@ -111,7 +119,8 @@ def process_case(case):
 def add_run_log_metadata():
     for entry in RUN_LOGS:
         entry["prompt_version"] = PROMPT_VERSION
-        entry.update(run_config.envelope_for_log())
+        for key, value in run_config.envelope_for_log().items():
+            entry.setdefault(key, value)
 
 
 def main():
