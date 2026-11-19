@@ -5,7 +5,7 @@ import pytest
 from src.validation import (
     _check_red_line_1, _check_red_line_2, _check_red_line_3,
     _check_red_line_4, _check_red_line_5, _check_red_line_6,
-    _check_red_line_7,
+    _check_red_line_7, _check_treatment_plan,
 )
 from tests.conftest import make_valid_medical_record, make_valid_sources
 
@@ -21,7 +21,7 @@ class TestRedLine1:
 
         record["case_features"] = "血压正常，尿量正常。血红蛋白 82 g/L。"
         sources = make_valid_sources()
-        with pytest.raises(ValueError, match="红线1"):
+        with pytest.raises(ValueError, match="VAL-302"):
             _check_red_line_1(record, sources)
 
     def test_documented_normal_not_false_positive(self):
@@ -34,7 +34,7 @@ class TestRedLine1:
         record = make_valid_medical_record()
         record["case_features"] = "胸痛客观阴性，血红蛋白 82 g/L。"
         sources = [{"source_id": "S01", "content": "患者否认胸痛"}]
-        with pytest.raises(ValueError, match=r"VR-11"):
+        with pytest.raises(ValueError, match=r"VAL-302"):
             _check_red_line_1(record, sources)
 
 
@@ -49,14 +49,14 @@ class TestRedLine2:
 
         record["diagnostic_discussion"] = "骨髓穿刺提示巨幼细胞性贫血。病因待查。"
         sources = make_valid_sources()
-        with pytest.raises(ValueError, match="红线2"):
+        with pytest.raises(ValueError, match="VAL-303"):
             _check_red_line_2(record, sources)
 
     def test_violation_fabricated_drug(self):
         record = make_valid_medical_record()
         record["case_features"] = "已予促红素治疗。血红蛋白 82 g/L。"
         sources = make_valid_sources()
-        with pytest.raises(ValueError, match="红线2"):
+        with pytest.raises(ValueError, match="VAL-303"):
             _check_red_line_2(record, sources)
 
 
@@ -70,15 +70,15 @@ class TestRedLine3:
         record = make_valid_medical_record()
         record["plan"] = "已予补铁治疗，已完成血常规复查。"
         sources = make_valid_sources()
-        with pytest.raises(ValueError, match="红线3"):
+        with pytest.raises(ValueError, match="VAL-401"):
             _check_red_line_3(record, sources)
 
     def test_violation_specific_medication_action(self):
         record = make_valid_medical_record()
         record["plan"] = "启动补铁，剂量为口服每日一次。"
         sources = make_valid_sources()
-        with pytest.raises(ValueError, match=r"VR-5"):
-            _check_red_line_3(record, sources)
+        with pytest.raises(ValueError, match=r"VAL-402"):
+            _check_treatment_plan(record, sources)
 
 
 class TestRedLine4:
@@ -91,14 +91,14 @@ class TestRedLine4:
         record = make_valid_medical_record()
         record["diagnostic_discussion"] = "出院时诊断明确为肾性贫血。"
         sources = make_valid_sources()
-        with pytest.raises(ValueError, match="红线4"):
+        with pytest.raises(ValueError, match="VAL-502"):
             _check_red_line_4(record, sources)
 
     def test_violation_confirmed(self):
         record = make_valid_medical_record()
         record["diagnostic_discussion"] = "确诊为急性肾损伤。"
         sources = make_valid_sources()
-        with pytest.raises(ValueError, match="红线4"):
+        with pytest.raises(ValueError, match="VAL-502"):
             _check_red_line_4(record, sources)
 
 
@@ -118,7 +118,7 @@ class TestRedLine5:
             {"statement": "血红蛋白 82 g/L", "source_ids": ["S03"], "kind": "fact"},
         ]
         sources = make_valid_sources()
-        with pytest.raises(ValueError, match="红线5"):
+        with pytest.raises(ValueError, match="VAL-501"):
             _check_red_line_5(record, sources)
 
     def test_skip_when_sufficient(self):
@@ -136,7 +136,7 @@ class TestRedLine6:
 
     def test_violation_with_errors(self):
         errors = [{"kind": "value_mismatch", "detail": "数值 90 g/L 未见于原始资料"}]
-        with pytest.raises(ValueError, match="红线6"):
+        with pytest.raises(ValueError, match="VAL-301"):
             _check_red_line_6(errors)
 
 
@@ -156,18 +156,18 @@ class TestRedLine7:
             {"statement": "患者有症状", "source_ids": ["S01"], "kind": "fact"},
         ]
         sources = make_valid_sources()
-        with pytest.raises(ValueError, match="红线7"):
+        with pytest.raises(ValueError, match="VAL-503"):
             _check_red_line_7(record, sources)
 
 
 class TestRedLineOrder:
     def test_red_line_2_before_red_line_3(self):
-        """同时命中红线2与红线3，编排中红线2先判定先抛出。"""
+        """同时命中VAL-303与VAL-401，编排中VAL-303先判定先抛出。"""
         from src.validation import validate_record
         record = make_valid_medical_record()
 
         record["case_features"] = "骨髓穿刺提示巨幼细胞性贫血。血红蛋白 82 g/L。"
         record["plan"] = "已予补铁，已完成复查。"
         sources = make_valid_sources()
-        with pytest.raises(ValueError, match="红线2"):
+        with pytest.raises(ValueError, match="VAL-303"):
             validate_record(record, sources)

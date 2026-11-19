@@ -219,7 +219,7 @@ def check_runtime():
     add("no_prompt_step", "PROMPT_STEP" not in runtime)
     add("no_authorization", "Authorization" not in runtime and "DASHSCOPE_API_KEY" not in runtime)
     add("run_config_wired", "run_config" in read("src/api_client.py"), "H-1: run_config.py unintegrated")
-    add("validator_vr_mapping", "VR-" in read("src/validation.py"), "H-2: 7 red lines, no VR IDs")
+    add("validator_rule_mapping", "RULE_REGISTRY" in read("src/validation.py") and "VAL-101" in read("src/validation.py"), "校验编号表缺失")
 
 
 def check_deliverables():
