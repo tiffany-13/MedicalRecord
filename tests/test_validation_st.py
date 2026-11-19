@@ -8,7 +8,7 @@ from src.validation import (
     _record_hit,
     validate_record,
     _check_red_line_1,
-    _check_vr_6,
+    _check_vr_9,
 )
 from tests.conftest import make_valid_medical_record, make_valid_sources
 
@@ -37,9 +37,9 @@ class TestVRRegistry:
             assert VR_REGISTRY[vr_id]["hit_count"] == 0, f"{vr_id} 初始 hit_count 不为0"
 
     def test_record_hit_increments_count(self):
-        _record_hit("VR-14")
-        assert _VR_HIT_COUNTS["VR-14"] >= 1
-        assert VR_REGISTRY["VR-14"]["hit_count"] >= 1
+        _record_hit("VR-6")
+        assert _VR_HIT_COUNTS["VR-6"] >= 1
+        assert VR_REGISTRY["VR-6"]["hit_count"] >= 1
 
 
 class TestVRErrorPrefix:
@@ -64,42 +64,42 @@ class TestVRErrorPrefix:
         record["evidence"] = []
         record["review_items"] = ["其他事项"]
         sources = make_valid_sources()
-        with pytest.raises(ValueError, match="VR-3"):
+        with pytest.raises(ValueError, match="VR-4"):
             validate_record(record, sources)
 
     def test_vr_8_prefix_on_nonexistent_source(self):
         record = make_valid_medical_record()
         record["evidence"][0]["source_ids"] = ["S99"]
         sources = make_valid_sources()
-        with pytest.raises(ValueError, match="VR-8"):
+        with pytest.raises(ValueError, match="VR-5"):
             validate_record(record, sources)
 
     def test_vr_9_prefix_on_future_info(self):
         record = make_valid_medical_record()
         record["diagnostic_discussion"] = "出院时确诊为肾性贫血。"
         sources = make_valid_sources()
-        with pytest.raises(ValueError, match="VR-9"):
+        with pytest.raises(ValueError, match="VR-10"):
             validate_record(record, sources)
 
     def test_vr_10_prefix_on_numeric_mismatch(self):
         record = make_valid_medical_record()
         record["case_features"] = "血红蛋白 99 g/L。"
         sources = make_valid_sources()
-        with pytest.raises(ValueError, match="VR-10"):
+        with pytest.raises(ValueError, match="VR-12"):
             validate_record(record, sources)
 
     def test_vr_13_prefix_on_plan_done(self):
         record = make_valid_medical_record()
         record["plan"] = "已予补铁治疗。"
         sources = make_valid_sources()
-        with pytest.raises(ValueError, match="VR-13"):
+        with pytest.raises(ValueError, match="VR-8"):
             validate_record(record, sources)
 
     def test_vr_14_prefix_on_negation_rewrite(self):
         record = make_valid_medical_record()
         record["case_features"] = "血压正常，尿量正常。血红蛋白 82 g/L。"
         sources = make_valid_sources()
-        with pytest.raises(ValueError, match="VR-14"):
+        with pytest.raises(ValueError, match="VR-6"):
             validate_record(record, sources)
 
 
@@ -119,7 +119,7 @@ class TestST9PatientDenial:
         ]
 
     def test_patient_denial_preserved_passes(self):
-        """输出保留'否认'措辞时，VR-14 不应触发。"""
+        """输出保留'否认'措辞时，VR-6 不应触发。"""
         record = make_valid_medical_record()
         record["case_features"] = (
             "成人，近2周乏力、活动后心悸，结膜苍白。"
@@ -140,7 +140,7 @@ class TestST9PatientDenial:
         validate_record(record, sources)
 
     def test_patient_denial_rewritten_to_negative_fires(self):
-        """输出将'否认'改写为'阴性'时，VR-14 应触发。"""
+        """输出将'否认'改写为'阴性'时，VR-6 应触发。"""
         record = make_valid_medical_record()
         record["case_features"] = (
             "成人，近2周乏力、活动后心悸，结膜苍白。"
@@ -158,11 +158,11 @@ class TestST9PatientDenial:
             {"statement": "病因待查", "source_ids": ["S04"], "kind": "inference"},
         ]
         sources = self._make_st9_sources()
-        with pytest.raises(ValueError, match="VR-14"):
+        with pytest.raises(ValueError, match="VR-6"):
             validate_record(record, sources)
 
     def test_patient_denial_rewritten_to_normal_fires(self):
-        """输出将'否认'改写为'正常'时，VR-14 应触发。"""
+        """输出将'否认'改写为'正常'时，VR-6 应触发。"""
         record = make_valid_medical_record()
         record["case_features"] = (
             "成人，近2周乏力、活动后心悸，结膜苍白。"
@@ -177,7 +177,7 @@ class TestST9PatientDenial:
             {"statement": "病因待查", "source_ids": ["S04"], "kind": "inference"},
         ]
         sources = self._make_st9_sources()
-        with pytest.raises(ValueError, match="VR-14"):
+        with pytest.raises(ValueError, match="VR-6"):
             validate_record(record, sources)
 
 
@@ -197,7 +197,7 @@ class TestST10MedicationRecommendation:
         ]
 
     def test_no_medication_recommendation_passes(self):
-        """plan 中不含药物推荐动词时，VR-6 不应触发。"""
+        """plan 中不含药物推荐动词时，VR-9 不应触发。"""
         record = make_valid_medical_record()
         record["plan"] = (
             "建议临床医生补充既往检查、用药史；"
@@ -208,49 +208,49 @@ class TestST10MedicationRecommendation:
         validate_record(record, sources)
 
     def test_start_iron_recommendation_fires(self):
-        """plan 含'启动'+'铁剂'时，VR-6 应触发。"""
+        """plan 含'启动'+'铁剂'时，VR-9 应触发。"""
         record = make_valid_medical_record()
         record["plan"] = "启动铁剂治疗。建议复查血常规。"
         sources = self._make_st10_sources()
-        with pytest.raises(ValueError, match="VR-6"):
+        with pytest.raises(ValueError, match="VR-9"):
             validate_record(record, sources)
 
     def test_stop_medication_recommendation_fires(self):
-        """plan 含'停用'+'降压药'时，VR-6 应触发。"""
+        """plan 含'停用'+'降压药'时，VR-9 应触发。"""
         record = make_valid_medical_record()
         record["plan"] = "停用降压药，观察症状变化。"
         sources = self._make_st10_sources()
-        with pytest.raises(ValueError, match="VR-6"):
+        with pytest.raises(ValueError, match="VR-9"):
             validate_record(record, sources)
 
     def test_adjust_medication_recommendation_fires(self):
-        """plan 含'调整'+'促红素'时，VR-6 应触发。"""
+        """plan 含'调整'+'促红素'时，VR-9 应触发。"""
         record = make_valid_medical_record()
         record["plan"] = "调整促红素剂量。建议复查。"
         sources = self._make_st10_sources()
-        with pytest.raises(ValueError, match="VR-6"):
+        with pytest.raises(ValueError, match="VR-9"):
             validate_record(record, sources)
 
     def test_replace_medication_recommendation_fires(self):
-        """plan 含'替换'+'铁剂'时，VR-6 应触发。"""
+        """plan 含'替换'+'铁剂'时，VR-9 应触发。"""
         record = make_valid_medical_record()
         record["plan"] = "替换铁剂为促红素。观察指标变化。"
         sources = self._make_st10_sources()
-        with pytest.raises(ValueError, match="VR-6"):
+        with pytest.raises(ValueError, match="VR-9"):
             validate_record(record, sources)
 
     def test_dose_in_plan_fires(self):
-        """plan 含剂量术语时，VR-6 应触发。"""
+        """plan 含剂量术语时，VR-9 应触发。"""
         record = make_valid_medical_record()
         record["plan"] = "建议口服 100mg 铁剂。复查血常规。"
         sources = self._make_st10_sources()
-        with pytest.raises(ValueError, match="VR-6"):
+        with pytest.raises(ValueError, match="VR-9"):
             validate_record(record, sources)
 
     def test_surgical_detail_in_plan_fires(self):
-        """plan 含手术细节时，VR-6 应触发。"""
+        """plan 含手术细节时，VR-9 应触发。"""
         record = make_valid_medical_record()
         record["plan"] = "建议行骨髓穿刺术。复查血常规。"
         sources = self._make_st10_sources()
-        with pytest.raises(ValueError, match="VR-6"):
+        with pytest.raises(ValueError, match="VR-9"):
             validate_record(record, sources)

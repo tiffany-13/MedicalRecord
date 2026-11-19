@@ -18,7 +18,7 @@ from decimal import Decimal
 
 
 # ---------------------------------------------------------------------------
-# 0. VR_REGISTRY — VR-1…VR-15 元数据与命中计数
+# 0. VR_REGISTRY — VR-1…VR-17 元数据与命中计数
 # ---------------------------------------------------------------------------
 
 VR_REGISTRY = {
@@ -37,93 +37,107 @@ VR_REGISTRY = {
         "status": "implemented", "run_ref": None, "hit_count": 0,
     },
     "VR-3": {
-        "id": "VR-3", "title": "空 evidence",
-        "layer": "L0", "class": "deterministic", "severity": "high",
-        "enforcement": "fail", "implementation": "_check_source_trace",
-        "tests": [], "false_positive_guard": None,
-        "status": "implemented", "run_ref": None, "hit_count": 0,
-    },
-    "VR-4": {
-        "id": "VR-4", "title": "空 review_items",
+        "id": "VR-3", "title": "空 review_items",
         "layer": "L0", "class": "deterministic", "severity": "high",
         "enforcement": "fail on missing key", "implementation": "_check_schema",
         "tests": [], "false_positive_guard": None,
         "status": "implemented", "run_ref": None, "hit_count": 0,
     },
-    "VR-5": {
-        "id": "VR-5", "title": "鉴别方向过度生产",
-        "layer": "L2", "class": "heuristic", "severity": "medium",
-        "enforcement": "advisory", "implementation": "_check_vr_5",
-        "tests": [], "false_positive_guard": "明确写'资料不足'的短列表不得触发",
-        "status": "implemented", "run_ref": None, "hit_count": 0,
-    },
-    "VR-6": {
-        "id": "VR-6", "title": "不安全治疗/药物推荐",
-        "layer": "L2", "class": "deterministic + heuristic", "severity": "high",
-        "enforcement": "fail + advisory", "implementation": "_check_vr_6",
+    "VR-4": {
+        "id": "VR-4", "title": "空 evidence",
+        "layer": "L0", "class": "deterministic", "severity": "high",
+        "enforcement": "fail", "implementation": "_check_source_trace",
         "tests": [], "false_positive_guard": None,
         "status": "implemented", "run_ref": None, "hit_count": 0,
     },
-    "VR-7": {
-        "id": "VR-7", "title": "诊断确定性",
-        "layer": "L2", "class": "heuristic", "severity": "high",
-        "enforcement": "fail", "implementation": "_check_red_line_5",
-        "tests": [], "false_positive_guard": "资料已明确确诊时允许确诊措辞",
-        "status": "implemented", "run_ref": None, "hit_count": 0,
-    },
-    "VR-8": {
-        "id": "VR-8", "title": "source_ids 不存在/跨病例",
+    "VR-5": {
+        "id": "VR-5", "title": "source_ids 不存在/跨病例",
         "layer": "L1", "class": "deterministic", "severity": "high",
         "enforcement": "fail", "implementation": "_check_source_trace",
         "tests": [], "false_positive_guard": None,
         "status": "implemented", "run_ref": None, "hit_count": 0,
     },
-    "VR-9": {
-        "id": "VR-9", "title": "时间边界",
-        "layer": "L2", "class": "deterministic + lexical", "severity": "high",
-        "enforcement": "fail", "implementation": "_check_red_line_3, _check_red_line_4",
-        "tests": [], "false_positive_guard": None,
-        "status": "implemented", "run_ref": None, "hit_count": 0,
-    },
-    "VR-10": {
-        "id": "VR-10", "title": "数值溯源",
-        "layer": "L1", "class": "deterministic", "severity": "high",
-        "enforcement": "fail", "implementation": "_check_numeric_trace, _check_red_line_6",
-        "tests": [], "false_positive_guard": "来源无单位时不惩罚输出",
-        "status": "implemented", "run_ref": None, "hit_count": 0,
-    },
-    "VR-11": {
-        "id": "VR-11", "title": "派生值",
-        "layer": "L2", "class": "heuristic", "severity": "medium",
-        "enforcement": "advisory", "implementation": "_check_vr_11",
-        "tests": [], "false_positive_guard": None,
-        "status": "implemented", "run_ref": None, "hit_count": 0,
-    },
-    "VR-12": {
-        "id": "VR-12", "title": "资料冲突",
-        "layer": "L2", "class": "deterministic", "severity": "high",
-        "enforcement": "advisory", "implementation": "_check_vr_12",
-        "tests": [], "false_positive_guard": None,
-        "status": "implemented", "run_ref": None, "hit_count": 0,
-    },
-    "VR-13": {
-        "id": "VR-13", "title": "计划/完成混淆",
-        "layer": "L2", "class": "deterministic", "severity": "high",
-        "enforcement": "fail", "implementation": "_check_red_line_3",
-        "tests": [], "false_positive_guard": None,
-        "status": "implemented", "run_ref": None, "hit_count": 0,
-    },
-    "VR-14": {
-        "id": "VR-14", "title": "否定/缺失语境",
+    "VR-6": {
+        "id": "VR-6", "title": "否定/缺失语境",
         "layer": "L2", "class": "deterministic + heuristic", "severity": "high",
         "enforcement": "fail + false-positive guard", "implementation": "_check_red_line_1",
         "tests": [], "false_positive_guard": "DOCUMENTED_NORMAL 不得触发",
         "status": "implemented", "run_ref": None, "hit_count": 0,
     },
-    "VR-15": {
-        "id": "VR-15", "title": "因果归因",
+    "VR-7": {
+        "id": "VR-7", "title": "凭空补写",
+        "layer": "L1", "class": "deterministic", "severity": "high",
+        "enforcement": "fail", "implementation": "_check_red_line_2",
+        "tests": [], "false_positive_guard": None,
+        "status": "implemented", "run_ref": None, "hit_count": 0,
+    },
+    "VR-8": {
+        "id": "VR-8", "title": "计划/完成混淆",
+        "layer": "L2", "class": "deterministic", "severity": "high",
+        "enforcement": "fail", "implementation": "_check_red_line_3",
+        "tests": [], "false_positive_guard": None,
+        "status": "implemented", "run_ref": None, "hit_count": 0,
+    },
+    "VR-9": {
+        "id": "VR-9", "title": "不安全治疗/药物推荐",
+        "layer": "L2", "class": "deterministic + heuristic", "severity": "high",
+        "enforcement": "fail + advisory", "implementation": "_check_vr_9",
+        "tests": [], "false_positive_guard": None,
+        "status": "implemented", "run_ref": None, "hit_count": 0,
+    },
+    "VR-10": {
+        "id": "VR-10", "title": "时间边界",
+        "layer": "L2", "class": "deterministic + lexical", "severity": "high",
+        "enforcement": "fail", "implementation": "_check_red_line_3, _check_red_line_4",
+        "tests": [], "false_positive_guard": None,
+        "status": "implemented", "run_ref": None, "hit_count": 0,
+    },
+    "VR-11": {
+        "id": "VR-11", "title": "诊断确定性",
         "layer": "L2", "class": "heuristic", "severity": "high",
+        "enforcement": "fail", "implementation": "_check_red_line_5",
+        "tests": [], "false_positive_guard": "资料已明确确诊时允许确诊措辞",
+        "status": "implemented", "run_ref": None, "hit_count": 0,
+    },
+    "VR-12": {
+        "id": "VR-12", "title": "数值溯源",
+        "layer": "L1", "class": "deterministic", "severity": "high",
+        "enforcement": "fail", "implementation": "_check_numeric_trace, _check_red_line_6",
+        "tests": [], "false_positive_guard": "来源无单位时不惩罚输出",
+        "status": "implemented", "run_ref": None, "hit_count": 0,
+    },
+    "VR-13": {
+        "id": "VR-13", "title": "泛化套话",
+        "layer": "L2", "class": "heuristic", "severity": "medium",
+        "enforcement": "fail", "implementation": "_check_red_line_7",
+        "tests": [], "false_positive_guard": None,
+        "status": "implemented", "run_ref": None, "hit_count": 0,
+    },
+    "VR-14": {
+        "id": "VR-14", "title": "派生值",
+        "layer": "L2", "class": "heuristic", "severity": "medium",
+        "enforcement": "advisory", "implementation": "_check_vr_14",
+        "tests": [], "false_positive_guard": None,
+        "status": "implemented", "run_ref": None, "hit_count": 0,
+    },
+    "VR-15": {
+        "id": "VR-15", "title": "资料冲突",
+        "layer": "L2", "class": "deterministic", "severity": "high",
         "enforcement": "advisory", "implementation": "_check_vr_15",
+        "tests": [], "false_positive_guard": None,
+        "status": "implemented", "run_ref": None, "hit_count": 0,
+    },
+    "VR-16": {
+        "id": "VR-16", "title": "鉴别方向过度生产",
+        "layer": "L2", "class": "heuristic", "severity": "medium",
+        "enforcement": "advisory", "implementation": "_check_vr_16",
+        "tests": [], "false_positive_guard": "明确写'资料不足'的短列表不得触发",
+        "status": "implemented", "run_ref": None, "hit_count": 0,
+    },
+    "VR-17": {
+        "id": "VR-17", "title": "因果归因",
+        "layer": "L2", "class": "heuristic", "severity": "high",
+        "enforcement": "advisory", "implementation": "_check_vr_17",
         "tests": [], "false_positive_guard": "'关系未明' + 点名缺失资料可通过",
         "status": "implemented", "run_ref": None, "hit_count": 0,
     },
@@ -131,7 +145,7 @@ VR_REGISTRY = {
 
 _VR_LOCK = threading.Lock()
 
-_VR_HIT_COUNTS = {f"VR-{i}": 0 for i in range(1, 16)}
+_VR_HIT_COUNTS = {f"VR-{i}": 0 for i in range(1, 18)}
 
 
 def _record_hit(vr_id):
@@ -221,7 +235,7 @@ NORMAL_OBSERVATION = re.compile(
     rf"(?P<items>{OBSERVATIONS})\s*(?:均|基本|为|在)?\s*(?:正常(?:范围)?|无异常|未见异常|阴性)"
 )
 
-# 红线2: 凭空补写检测词表
+# VR-7（红线2）: 凭空补写检测词表
 KNOWN_EXAM_TERMS = (
     "血常规", "尿常规", "便常规", "肝功能", "肾功能", "电解质", "凝血",
     "心电图", "胸片", "胸部CT", "腹部B超", "腹部CT", "心脏彩超",
@@ -233,7 +247,7 @@ KNOWN_DRUG_TERMS = (
     "抗生素", "激素", "免疫抑制剂", "化疗",
 )
 
-# VR-6: 不安全治疗/药物推荐
+# VR-9: 不安全治疗/药物推荐
 MEDICATION_RECOMMENDATION_VERBS = (
     "启动", "停用", "调整", "替换", "给予", "加用", "换用",
     "已开始", "已予", "已给", "已用",
@@ -250,15 +264,15 @@ SURGICAL_DETAIL_TERMS = (
     "手术", "穿刺术", "活检术", "切除术", "置管术", "引流术",
 )
 
-# VR-13: 计划写成已实施的关键词
+# VR-8: 计划写成已实施的关键词
 PLAN_DONE = re.compile(r"已(?:经)?(?:予|完成|行(?!走)|给|做|用|实施|执行|复查|接受)")
 
-# VR-9: 时序颠倒/提前引入后续信息的标志词
+# VR-10: 时序颠倒/提前引入后续信息的标志词
 FUTURE_INFO = re.compile(r"出院诊断|出院时|出院后|已出院|随访(?:显示|发现|提示|结果)|(?:复查)?确诊")
 PROSPECTIVE = re.compile(r"拟|计划|建议|待|将|若|如果|一旦|可考虑")
 DISCHARGE_PLAN = re.compile(r"^\s*(?:拟|计划|建议|待|将|可考虑)")
 
-# VR-7: 信息不足标志词
+# VR-11: 信息不足标志词
 INSUFFICIENT_TERMS = ("待查", "未提供", "不详", "缺乏", "未查", "资料不足", "未明确")
 UNCERTAINTY_TERMS = (
     "需进一步检查", "需进一步检查明确", "病因待查", "原因待查",
@@ -267,18 +281,18 @@ UNCERTAINTY_TERMS = (
 )
 DEFINITIVE_TERMS = ("确诊", "诊断为", "明确为", "就是", "即是", "确定是")
 
-# VR-5: 鉴别方向关键词
+# VR-16: 鉴别方向关键词
 DIFFERENTIAL_KEYWORDS = ("考虑", "可能", "疑似", "待排除", "鉴别")
 INSUFFICIENCY_STATEMENT_TERMS = ("资料不足", "信息不足", "证据不足", "需进一步")
 
-# VR-11: 派生值关键词
+# VR-14: 派生值关键词
 DERIVED_VALUE_TERMS = (
     "比值", "评分", "分期", "分级", "分类",
     "GFR", "eGFR", "肌酐清除率",
     "CKD", "AKI",
 )
 
-# VR-15: 因果连接词
+# VR-17: 因果连接词
 CAUSAL_CONNECTIVES = (
     "导致", "引起", "所致", "引发", "造成", "归于", "归因于",
 )
@@ -286,7 +300,7 @@ CAUSAL_UNCERTAINTY_TERMS = (
     "关系未明", "关系不明", "需进一步检查", "尚不能确定",
 )
 
-# 红线7: 泛化套话模板片段
+# VR-13（红线7）: 泛化套话模板片段
 GENERIC_PHRASES = (
     "患者有症状，需进一步检查",
     "需完善相关检查",
@@ -353,7 +367,7 @@ def _joined_sources_text(original_sources):
 
 
 # ---------------------------------------------------------------------------
-# 三、Schema 结构校验（VR-1, VR-2, VR-4 + L0 guard）
+# 三、Schema 结构校验（VR-1, VR-2, VR-3 + L0 guard）
 # ---------------------------------------------------------------------------
 
 def _check_schema(medical_record):
@@ -363,7 +377,7 @@ def _check_schema(medical_record):
     for field in REQUIRED_FIELDS:
         if field not in medical_record:
             if field == "review_items":
-                _record_hit("VR-4")
+                _record_hit("VR-3")
             raise ValueError(f"缺少字段: {field}")
 
     for key in medical_record:
@@ -422,7 +436,7 @@ def _check_schema(medical_record):
 
 
 # ---------------------------------------------------------------------------
-# 四、source_ids 溯源校验（VR-8, VR-3）
+# 四、source_ids 溯源校验（VR-5, VR-4）
 # ---------------------------------------------------------------------------
 
 def _check_source_trace(medical_record, original_sources):
@@ -436,8 +450,8 @@ def _check_source_trace(medical_record, original_sources):
     evidence = medical_record.get("evidence", []) or []
 
     if len(evidence) < EVIDENCE_MIN:
-        _record_hit("VR-3")
-        raise ValueError("VR-3: evidence 至少 1 条")
+        _record_hit("VR-4")
+        raise ValueError("VR-4: evidence 至少 1 条")
 
     if len(evidence) > EVIDENCE_SUGGEST_MAX:
         _log_debug("source_trace", f"evidence 条数偏多: {len(evidence)}")
@@ -445,14 +459,14 @@ def _check_source_trace(medical_record, original_sources):
     for i, item in enumerate(evidence):
         for sid in item.get("source_ids", []) or []:
             if sid not in valid_ids:
-                _record_hit("VR-8")
-                raise ValueError(f"VR-8: 来源不存在: {sid}")
+                _record_hit("VR-5")
+                raise ValueError(f"VR-5: 来源不存在: {sid}")
 
     _log_debug("source_trace", f"溯源校验通过，合法来源 {len(valid_ids)} 个")
 
 
 # ---------------------------------------------------------------------------
-# 五、数值回溯校验（VR-10）—— 收集错误，不直接抛出
+# 五、数值回溯校验（VR-12）—— 收集错误，不直接抛出
 # ---------------------------------------------------------------------------
 
 
@@ -553,7 +567,7 @@ def _check_numeric_trace(medical_record, original_sources):
 
 
 # ---------------------------------------------------------------------------
-# 六、医学红线拦截（VR-14, VR-6, VR-13, VR-9, VR-7, VR-10, VR-5, VR-11, VR-12, VR-15）
+# 六、医学红线拦截（VR-6, VR-9, VR-8, VR-10, VR-11, VR-12, VR-16, VR-14, VR-15, VR-17）
 # ---------------------------------------------------------------------------
 
 NEGATIVE_CONTEXT_TERMS = ("不能确认", "不能排除", "否认", "未确认", "未排除", "无法确认", "无法排除")
@@ -574,8 +588,8 @@ def _check_red_line_1(medical_record, original_sources):
         for clause in CLAUSE_BREAK.split(text):
             for match in _asserted_matches(objective, clause):
                 if match["symptom"] in denied:
-                    _record_hit("VR-14")
-                    raise ValueError(f"VR-14: 红线1: 否认{match['symptom']}被改写为客观结果")
+                    _record_hit("VR-6")
+                    raise ValueError(f"VR-6: 红线1: 否认{match['symptom']}被改写为客观结果")
     missing = {
         item
         for match in MISSING_OBSERVATION.finditer(sources)
@@ -590,8 +604,8 @@ def _check_red_line_1(medical_record, original_sources):
             for match in _asserted_matches(NORMAL_OBSERVATION, clause):
                 contradicted = sorted(missing.intersection(re.findall(OBSERVATION, match["items"])))
                 if contradicted:
-                    _record_hit("VR-14")
-                    raise ValueError(f"VR-14: 红线1: {'、'.join(contradicted)}在资料中缺失，却被写为正常")
+                    _record_hit("VR-6")
+                    raise ValueError(f"VR-6: 红线1: {'、'.join(contradicted)}在资料中缺失，却被写为正常")
     _log_debug("red_line_1", "否定关系保留")
 
 
@@ -610,12 +624,12 @@ def _check_missing_exams(medical_record, original_sources):
         for clause in CLAUSE_BREAK.split(text):
             for match in _asserted_matches(EXAM_NORMAL, clause):
                 if match["exam"] in missing:
-                    _record_hit("VR-14")
-                    raise ValueError(f"VR-14: 红线1: {match['exam']}缺少客观结果，却被写为正常或阴性")
+                    _record_hit("VR-6")
+                    raise ValueError(f"VR-6: 红线1: {match['exam']}缺少客观结果，却被写为正常或阴性")
 
 
 def _check_red_line_2(medical_record, original_sources):
-    """红线2: 凭空补写（no VR ID — unregistered guard）。"""
+    """VR-7（红线2）: 凭空补写。"""
     sources_text = _joined_sources_text(original_sources)
     fact_text = " ".join([
         medical_record.get("case_features", "") or "",
@@ -624,20 +638,22 @@ def _check_red_line_2(medical_record, original_sources):
 
     for term in KNOWN_EXAM_TERMS:
         if term in fact_text and term not in sources_text:
+            _record_hit("VR-7")
             raise ValueError(
-                f"红线2: 凭空补写: 检查项 '{term}' 未见于原始资料"
+                f"VR-7: 红线2: 凭空补写: 检查项 '{term}' 未见于原始资料"
             )
 
     for term in KNOWN_DRUG_TERMS:
         if term in fact_text and term not in sources_text:
+            _record_hit("VR-7")
             raise ValueError(
-                f"红线2: 凭空补写: 用药/操作 '{term}' 未见于原始资料"
+                f"VR-7: 红线2: 凭空补写: 用药/操作 '{term}' 未见于原始资料"
             )
 
     _log_debug("red_line_2", "无凭空补写")
 
 
-def _check_vr_6(medical_record, original_sources):
+def _check_vr_9(medical_record, original_sources):
     """检查明确的药物启停/剂量推荐，忽略否定、核实与其他指标的单位。"""
     drug_pattern = "|".join(re.escape(term) for term in MEDICATION_NAMES)
     action = re.compile("|".join(re.escape(term) for term in MEDICATION_RECOMMENDATION_VERBS))
@@ -646,18 +662,18 @@ def _check_vr_6(medical_record, original_sources):
         for match in _asserted_matches(action, clause):
             nearby = clause[max(0, match.start() - 15):match.end() + 15]
             if re.search(drug_pattern, nearby):
-                _record_hit("VR-6")
-                raise ValueError(f"VR-6: 不安全治疗推荐: {clause}")
+                _record_hit("VR-9")
+                raise ValueError(f"VR-9: 不安全治疗推荐: {clause}")
         if re.search(drug_pattern, clause):
             for match in _asserted_matches(dosing, clause):
-                _record_hit("VR-6")
-                raise ValueError(f"VR-6: 药物剂量/途径/频次需要复核: {clause}")
+                _record_hit("VR-9")
+                raise ValueError(f"VR-9: 药物剂量/途径/频次需要复核: {clause}")
         for term in SURGICAL_DETAIL_TERMS:
             pattern = re.compile(re.escape(term))
             for match in _asserted_matches(pattern, clause):
-                _record_hit("VR-6")
-                raise ValueError(f"VR-6: 手术/侵入性计划需要复核: {clause}")
-    _log_debug("VR-6", "未发现明确的药物启停、剂量或侵入性计划")
+                _record_hit("VR-9")
+                raise ValueError(f"VR-9: 手术/侵入性计划需要复核: {clause}")
+    _log_debug("VR-9", "未发现明确的药物启停、剂量或侵入性计划")
 
 
 def _check_red_line_3(medical_record, original_sources):
@@ -665,8 +681,8 @@ def _check_red_line_3(medical_record, original_sources):
     for clause in CLAUSE_BREAK.split(medical_record["plan"]):
         for match in _asserted_matches(PLAN_DONE, clause):
             snippet = _truncate_snippet(clause[max(0, match.start() - 10):match.end() + 10])
-            _record_hit("VR-13")
-            raise ValueError(f"VR-13: 红线3: 计划写成已实施: {snippet}")
+            _record_hit("VR-8")
+            raise ValueError(f"VR-8: 红线3: 计划写成已实施: {snippet}")
     _log_debug("red_line_3", "计划表述合规")
 
 
@@ -682,48 +698,48 @@ def _check_red_line_4(medical_record, original_sources):
                     continue
                 if match.group() in ("出院时", "出院后") and DISCHARGE_PLAN.match(clause[match.end():]):
                     continue
-                _record_hit("VR-9")
-                raise ValueError(f"VR-9: 红线4: 提前引入后续信息 '{match.group()}'")
+                _record_hit("VR-10")
+                raise ValueError(f"VR-10: 红线4: 提前引入后续信息 '{match.group()}'")
     _log_debug("red_line_4", "未发现明确的后续结果")
 
 
 def _check_red_line_5(medical_record, original_sources):
-    """VR-7: 信息不足硬下结论（红线5）。"""
+    """VR-11: 信息不足硬下结论（红线5）。"""
     sources_text = _joined_sources_text(original_sources)
 
     insufficient = any(term in sources_text for term in INSUFFICIENT_TERMS)
     if not insufficient:
-        _log_debug("VR-7", "资料充分，跳过信息不足检测")
+        _log_debug("VR-11", "资料充分，跳过信息不足检测")
         return
 
     gen_text = " ".join(_all_text_values(medical_record))
     has_uncertainty = any(term in gen_text for term in UNCERTAINTY_TERMS)
     if has_uncertainty:
-        _log_debug("VR-7", "已包含不确定性表述")
+        _log_debug("VR-11", "已包含不确定性表述")
         return
 
     for term in DEFINITIVE_TERMS:
         if term in gen_text:
-            _record_hit("VR-7")
+            _record_hit("VR-11")
             raise ValueError(
-                f"VR-7: 红线5: 信息不足硬下结论: 出现 '{term}' 但无不确定性表述"
+                f"VR-11: 红线5: 信息不足硬下结论: 出现 '{term}' 但无不确定性表述"
             )
 
-    _log_debug("VR-7", "无确定性措辞，不报")
+    _log_debug("VR-11", "无确定性措辞，不报")
 
 
 def _check_red_line_6(numeric_errors):
-    """VR-10: 数值/单位/方向错误汇总入口（红线6）。"""
+    """VR-12: 数值/单位/方向错误汇总入口（红线6）。"""
     if numeric_errors:
         first = numeric_errors[0]
         detail = first.get("detail", "")
-        _record_hit("VR-10")
-        raise ValueError(f"VR-10: 红线6: 数值/单位/方向错误: {detail}")
-    _log_debug("VR-10", "数值/单位/方向无误")
+        _record_hit("VR-12")
+        raise ValueError(f"VR-12: 红线6: 数值/单位/方向错误: {detail}")
+    _log_debug("VR-12", "数值/单位/方向无误")
 
 
 def _check_red_line_7(medical_record, original_sources):
-    """红线7: 泛化套话（no VR ID — human review, D31 CR-4）。"""
+    """VR-13（红线7）: 泛化套话（human review, D31 CR-4）。"""
     sources_text = _joined_sources_text(original_sources)
     gen_text = " ".join(_all_text_values(medical_record))
 
@@ -741,15 +757,17 @@ def _check_red_line_7(medical_record, original_sources):
     if not has_specific_value and not has_specific_term:
         for phrase in GENERIC_PHRASES:
             if phrase in gen_text:
-                raise ValueError(f"红线7: 泛化套话: 含 '{phrase}' 且无本例特异信息")
+                _record_hit("VR-13")
+                raise ValueError(f"VR-13: 红线7: 泛化套话: 含 '{phrase}' 且无本例特异信息")
         if specific_values or specific_terms:
-            raise ValueError("红线7: 泛化套话: 缺少本例特异信息")
+            _record_hit("VR-13")
+            raise ValueError("VR-13: 红线7: 泛化套话: 缺少本例特异信息")
 
     _log_debug("red_line_7", "含本例特异信息")
 
 
-def _check_vr_5(medical_record, original_sources):
-    """VR-5: 鉴别方向过度生产（advisory，不 raise）。"""
+def _check_vr_16(medical_record, original_sources):
+    """VR-16: 鉴别方向过度生产（advisory，不 raise）。"""
     diagnostic_discussion = medical_record.get("diagnostic_discussion", "")
     if not isinstance(diagnostic_discussion, str) or not diagnostic_discussion:
         return []
@@ -766,25 +784,25 @@ def _check_vr_5(medical_record, original_sources):
         )
         if not has_insufficiency:
             findings.append({
-                "vr_id": "VR-5", "field": "diagnostic_discussion",
+                "vr_id": "VR-16", "field": "diagnostic_discussion",
                 "detail": "鉴别方向数量为0且无不足说明",
                 "advisory": True,
             })
 
     if direction_count > 3:
         findings.append({
-            "vr_id": "VR-5", "field": "diagnostic_discussion",
+            "vr_id": "VR-16", "field": "diagnostic_discussion",
             "detail": f"鉴别方向数量偏多({direction_count}个)，可能为凑数",
             "advisory": True,
         })
 
     if findings:
-        _record_hit("VR-5")
-    _log_debug("VR-5", f"鉴别方向检查完成，findings={len(findings)}")
+        _record_hit("VR-16")
+    _log_debug("VR-16", f"鉴别方向检查完成，findings={len(findings)}")
     return findings
 
 
-def _check_vr_11(medical_record, original_sources):
+def _check_vr_14(medical_record, original_sources):
     """来源已有的术语可作为事实。新派生结论需要对应的推断证据。"""
     sources_text = _joined_sources_text(original_sources)
     findings = []
@@ -800,15 +818,15 @@ def _check_vr_11(medical_record, original_sources):
             )
             if not supported:
                 findings.append({
-                    "vr_id": "VR-11", "field": field, "advisory": True,
+                    "vr_id": "VR-14", "field": field, "advisory": True,
                     "detail": f"出现资料中未列出的派生术语 {term}，需复核依据及推断标注",
                 })
     if findings:
-        _record_hit("VR-11")
+        _record_hit("VR-14")
     return findings
 
 
-def _check_vr_12(medical_record, original_sources):
+def _check_vr_15(medical_record, original_sources):
     """对同指标同单位的多个结果提醒复核，时间信息不足时不自动判冲突。"""
     observations = {}
     for source in original_sources:
@@ -823,16 +841,16 @@ def _check_vr_12(medical_record, original_sources):
         if metric in review_text and re.search("冲突|不一致|矛盾|差异|不同|核实", review_text):
             continue
         findings.append({
-            "vr_id": "VR-12", "field": "review_items", "advisory": True,
+            "vr_id": "VR-15", "field": "review_items", "advisory": True,
             "detail": f"{metric}存在多个{unit}结果，需结合采样时间核对是否冲突",
         })
     if findings:
-        _record_hit("VR-12")
+        _record_hit("VR-15")
     return findings
 
 
-def _check_vr_15(medical_record, original_sources):
-    """VR-15: 因果归因检测（advisory，不 raise）。"""
+def _check_vr_17(medical_record, original_sources):
+    """VR-17: 因果归因检测（advisory，不 raise）。"""
     gen_text = " ".join(_all_text_values(medical_record))
 
     findings = []
@@ -844,14 +862,14 @@ def _check_vr_15(medical_record, original_sources):
             )
             if not has_uncertainty:
                 findings.append({
-                    "vr_id": "VR-15", "field": "medical_record",
+                    "vr_id": "VR-17", "field": "medical_record",
                     "detail": f"因果归因: 出现 '{connective}' 但无不确定性表述",
                     "advisory": True,
                 })
 
     if findings:
-        _record_hit("VR-15")
-    _log_debug("VR-15", f"因果归因检查完成，findings={len(findings)}")
+        _record_hit("VR-17")
+    _log_debug("VR-17", f"因果归因检查完成，findings={len(findings)}")
     return findings
 
 
@@ -882,13 +900,13 @@ def validate_record(medical_record, original_sources, *, findings=None):
     _check_missing_exams(medical_record, original_sources)
     _check_red_line_2(medical_record, original_sources)
     _check_red_line_3(medical_record, original_sources)
-    _check_vr_6(medical_record, original_sources)
+    _check_vr_9(medical_record, original_sources)
     _check_red_line_4(medical_record, original_sources)
     _check_red_line_5(medical_record, original_sources)
     _check_red_line_6(numeric_errors)
     _check_red_line_7(medical_record, original_sources)
 
-    for check in (_check_vr_11, _check_vr_12, _check_vr_5, _check_vr_15):
+    for check in (_check_vr_14, _check_vr_15, _check_vr_16, _check_vr_17):
         advice = check(medical_record, original_sources)
         if findings is not None:
             findings.extend(advice)

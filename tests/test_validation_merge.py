@@ -31,7 +31,7 @@ def test_qualified_plan_passes(plan):
 def test_unsupported_measurement_fails(text):
     record = make_valid_medical_record()
     record["case_features"] = text
-    with pytest.raises(ValueError, match="VR-10"):
+    with pytest.raises(ValueError, match="VR-12"):
         validate_record(record, make_valid_sources())
 
 
@@ -39,7 +39,7 @@ def test_documented_normal_does_not_allow_another_missing_item_to_be_normal():
     sources = make_valid_sources() + [{"source_id": "S05", "content": "体温正常。"}]
     record = make_valid_medical_record()
     record["case_features"] = "乏力，体温正常，血压正常。"
-    with pytest.raises(ValueError, match="VR-14"):
+    with pytest.raises(ValueError, match="VR-6"):
         validate_record(record, sources)
 
 
@@ -47,7 +47,7 @@ def test_different_metrics_with_same_number_are_not_a_conflict():
     sources = make_valid_sources() + [{"source_id": "S05", "content": "心率82次/分。"}]
     findings = []
     validate_record(make_valid_medical_record(), sources, findings=findings)
-    assert not any(item["vr_id"] == "VR-12" for item in findings)
+    assert not any(item["vr_id"] == "VR-15" for item in findings)
 
 
 def test_documented_ckd_can_be_fact_without_inference():
@@ -58,7 +58,7 @@ def test_documented_ckd_can_be_fact_without_inference():
     sources = make_valid_sources() + [{"source_id": "S05", "content": "既往已明确CKD。"}]
     findings = []
     validate_record(record, sources, findings=findings)
-    assert not any(item["vr_id"] == "VR-11" for item in findings)
+    assert not any(item["vr_id"] == "VR-14" for item in findings)
 
 
 def test_new_derived_term_needs_corresponding_evidence_even_with_other_inference():
@@ -66,7 +66,7 @@ def test_new_derived_term_needs_corresponding_evidence_even_with_other_inference
     record["diagnostic_discussion"] += "需进一步评估eGFR。"
     findings = []
     validate_record(record, make_valid_sources(), findings=findings)
-    assert any(item["vr_id"] == "VR-11" and item["field"] == "diagnostic_discussion" for item in findings)
+    assert any(item["vr_id"] == "VR-14" and item["field"] == "diagnostic_discussion" for item in findings)
 
 
 def test_multiple_results_are_advisory_with_field():
@@ -74,14 +74,14 @@ def test_multiple_results_are_advisory_with_field():
     sources = make_valid_sources() + [{"source_id": "S05", "content": "次日血红蛋白90 g/L。"}]
     findings = []
     validate_record(record, sources, findings=findings)
-    assert any(item["vr_id"] == "VR-12" and item["field"] == "review_items" for item in findings)
+    assert any(item["vr_id"] == "VR-15" and item["field"] == "review_items" for item in findings)
 
 
 def test_gap_statement_does_not_hide_empty_evidence():
     record = make_valid_medical_record()
     record["evidence"] = []
     record["review_items"] = ["资料不足"]
-    with pytest.raises(ValueError, match="VR-3"):
+    with pytest.raises(ValueError, match="VR-4"):
         validate_record(record, make_valid_sources())
 
 
@@ -125,8 +125,8 @@ def test_main_mixed_batch_and_case_specific_advisories(monkeypatch, tmp_path):
     assert results[1]["error"]["code"] == "VALIDATION_ERROR"
     logs = json.loads(main.LOG_FILE.read_text(encoding="utf-8"))
     by_case = {row["case_id"]: row for row in logs}
-    assert not any(item["vr_id"] == "VR-12" for item in by_case["VALID"]["validation_findings"])
+    assert not any(item["vr_id"] == "VR-15" for item in by_case["VALID"]["validation_findings"])
     advice = by_case["ADVISORY"]["validation_findings"]
-    assert any(item["vr_id"] == "VR-12" and item["case_id"] == "ADVISORY" for item in advice)
+    assert any(item["vr_id"] == "VR-15" and item["case_id"] == "ADVISORY" for item in advice)
     assert all("field" in item and item["case_id"] == "ADVISORY" for item in advice)
     assert replies == original_replies

@@ -355,7 +355,7 @@ def check_safety():
     d31 = read("documents/临床智录_D_临床需求对照表.md")
     vr28 = set(re.findall(r"VR-\d+", d28))
     vr31 = set(re.findall(r"VR-\d+", d31))
-    add("d28_vr_1_15", {f"VR-{i}" for i in range(1, 16)} <= vr28)
+    add("d28_vr_1_17", {f"VR-{i}" for i in range(1, 18)} <= vr28)
     add("d31_vr_match", vr28 == vr31, f"{sorted(vr28 - vr31)} / {sorted(vr31 - vr28)}")
     add("d31_cr_1_10", all(f"CR-{i}" in d31 for i in range(1, 11)))
 
