@@ -3,20 +3,224 @@
 
 对外仅暴露 validate_record(medical_record, original_sources)：
   校验通过 -> 直接 return
-  校验失败 -> raise ValueError("错误原因")
+  校验失败 -> raise ValueError("VAL-xxx: 错误原因")
 
-编排顺序：Schema -> 溯源 -> 数值回溯(收集) -> 红线1..5 -> 红线6(汇总) -> 红线7
-首个命中即抛出，纯标准库实现，不修改入参。
+编排顺序：结构、来源、数值回溯、语境与计划、治疗与时序、数值错误、个体化。
+派生术语、同指标多结果、鉴别方向及因果归因作为复核提醒。
+可用 findings 列表收集提醒，原有双参数调用和通过时返回 None 的约定保持兼容。
+首个 fail-class 命中即抛出，advisory 只记录不抛出，纯标准库实现，不修改入参。
 """
 
 import re
+import threading
+import unicodedata
+from decimal import Decimal
+
+
+# 规则编号按检查类别分段。已分配编号保持固定，新规则在所属段追加。
+RULE_REGISTRY = {
+    "VAL-101": {
+        "id": "VAL-101",
+        "title": "病历对象与五字段完整性",
+        "group": "结构",
+        "enforcement": "fail",
+        "implementation": "_check_schema",
+        "status": "implemented",
+        "hit_count": 0,
+    },
+    "VAL-102": {
+        "id": "VAL-102",
+        "title": "三段正文类型与非空",
+        "group": "结构",
+        "enforcement": "fail",
+        "implementation": "_check_schema",
+        "status": "implemented",
+        "hit_count": 0,
+    },
+    "VAL-103": {
+        "id": "VAL-103",
+        "title": "证据条目结构",
+        "group": "结构",
+        "enforcement": "fail",
+        "implementation": "_check_schema",
+        "status": "implemented",
+        "hit_count": 0,
+    },
+    "VAL-104": {
+        "id": "VAL-104",
+        "title": "事实与推断标签取值",
+        "group": "结构",
+        "enforcement": "fail",
+        "implementation": "_check_schema",
+        "status": "implemented",
+        "hit_count": 0,
+    },
+    "VAL-105": {
+        "id": "VAL-105",
+        "title": "待核事项字段与类型",
+        "group": "结构",
+        "enforcement": "fail",
+        "implementation": "_check_schema",
+        "status": "implemented",
+        "hit_count": 0,
+    },
+    "VAL-106": {
+        "id": "VAL-106",
+        "title": "正文含代码围栏",
+        "group": "结构",
+        "enforcement": "fail",
+        "implementation": "_check_schema",
+        "status": "implemented",
+        "hit_count": 0,
+    },
+    "VAL-201": {
+        "id": "VAL-201",
+        "title": "证据至少一条",
+        "group": "证据",
+        "enforcement": "fail",
+        "implementation": "_check_source_trace",
+        "status": "implemented",
+        "hit_count": 0,
+    },
+    "VAL-202": {
+        "id": "VAL-202",
+        "title": "来源编号属于当前病例",
+        "group": "证据",
+        "enforcement": "fail",
+        "implementation": "_check_source_trace",
+        "status": "implemented",
+        "hit_count": 0,
+    },
+    "VAL-301": {
+        "id": "VAL-301",
+        "title": "数值、指标、单位与方向溯源",
+        "group": "事实",
+        "enforcement": "fail",
+        "implementation": "_check_red_line_6",
+        "status": "implemented",
+        "hit_count": 0,
+    },
+    "VAL-302": {
+        "id": "VAL-302",
+        "title": "缺失、否认与客观结果",
+        "group": "事实",
+        "enforcement": "fail",
+        "implementation": "_check_red_line_1, _check_missing_exams",
+        "status": "implemented",
+        "hit_count": 0,
+    },
+    "VAL-303": {
+        "id": "VAL-303",
+        "title": "词表内事实无来源支持",
+        "group": "事实",
+        "enforcement": "fail",
+        "implementation": "_check_red_line_2",
+        "status": "implemented",
+        "hit_count": 0,
+    },
+    "VAL-401": {
+        "id": "VAL-401",
+        "title": "计划写成已完成",
+        "group": "计划",
+        "enforcement": "fail",
+        "implementation": "_check_red_line_3",
+        "status": "implemented",
+        "hit_count": 0,
+    },
+    "VAL-402": {
+        "id": "VAL-402",
+        "title": "具体药物与侵入性计划",
+        "group": "计划",
+        "enforcement": "fail",
+        "implementation": "_check_treatment_plan",
+        "status": "implemented",
+        "hit_count": 0,
+    },
+    "VAL-501": {
+        "id": "VAL-501",
+        "title": "信息不足却使用确定性判断",
+        "group": "判断与时序",
+        "enforcement": "fail",
+        "implementation": "_check_red_line_5",
+        "status": "implemented",
+        "hit_count": 0,
+    },
+    "VAL-502": {
+        "id": "VAL-502",
+        "title": "提前写入后续结果",
+        "group": "判断与时序",
+        "enforcement": "fail",
+        "implementation": "_check_red_line_4",
+        "status": "implemented",
+        "hit_count": 0,
+    },
+    "VAL-503": {
+        "id": "VAL-503",
+        "title": "缺少病例特征的泛化文本",
+        "group": "判断与时序",
+        "enforcement": "fail",
+        "implementation": "_check_red_line_7",
+        "status": "implemented",
+        "hit_count": 0,
+    },
+    "VAL-601": {
+        "id": "VAL-601",
+        "title": "鉴别方向复核",
+        "group": "复核提醒",
+        "enforcement": "advisory",
+        "implementation": "_check_differential_review",
+        "status": "implemented",
+        "hit_count": 0,
+    },
+    "VAL-602": {
+        "id": "VAL-602",
+        "title": "派生术语复核",
+        "group": "复核提醒",
+        "enforcement": "advisory",
+        "implementation": "_check_derived_review",
+        "status": "implemented",
+        "hit_count": 0,
+    },
+    "VAL-603": {
+        "id": "VAL-603",
+        "title": "同指标多个结果复核",
+        "group": "复核提醒",
+        "enforcement": "advisory",
+        "implementation": "_check_multiple_results_review",
+        "status": "implemented",
+        "hit_count": 0,
+    },
+    "VAL-604": {
+        "id": "VAL-604",
+        "title": "因果归因复核",
+        "group": "复核提醒",
+        "enforcement": "advisory",
+        "implementation": "_check_causality_review",
+        "status": "implemented",
+        "hit_count": 0,
+    },
+}
+
+_RULE_LOCK = threading.Lock()
+RULE_HIT_COUNTS = {rule_id: 0 for rule_id in RULE_REGISTRY}
+
+
+def _record_hit(rule_id):
+    with _RULE_LOCK:
+        RULE_HIT_COUNTS[rule_id] += 1
+        RULE_REGISTRY[rule_id]["hit_count"] = RULE_HIT_COUNTS[rule_id]
+
+
+def _rule_error(rule_id, detail):
+    rule = RULE_REGISTRY[rule_id]
+    _record_hit(rule_id)
+    return ValueError(f"{rule_id} [{rule['title']}]: {detail}")
 
 
 # ---------------------------------------------------------------------------
 # 一、模块级常量
 # ---------------------------------------------------------------------------
 
-# medical_record 固定五字段
 REQUIRED_FIELDS = (
     "case_features",
     "diagnostic_discussion",
@@ -25,59 +229,75 @@ REQUIRED_FIELDS = (
     "review_items",
 )
 
-# evidence 条数约束：至少 1 条，建议不超过 5 条
 EVIDENCE_MIN = 1
 EVIDENCE_SUGGEST_MAX = 5
 
-# 违规片段截断长度，错误信息中引用的片段不超过该长度
 MAX_SNIPPET_LEN = 50
 
-# 数值+单位提取正则：匹配"数值 + 常见医学单位"，单位含中文与英文混合
-# 示例：82 g/L、185 μmol/L、3.5×10^12/L、120 mmHg
-NUMERIC_PATTERN = re.compile(
-    r"(?P<value>\d+(?:\.\d+)?(?:[×x]\d+\^?\d+)?)"
-    r"\s*"
-    r"(?P<unit>g/L|mg/dL|mmol/L|μmol/L|umol/L|×10\^?\d+/L|10\^?\d+/L|"
-    r"mmHg|cmH2O|kPa|U/L|IU/L|ng/mL|μg/L|ug/L|pg/mL|"
-    r"mmol/L|mol/L|%|mmol/L|g/dL|mg/L|"
-    r"次/分|次/min|bpm|"
-    r"cm|mm|kg|g|mg|μg|ug|ng|"
-    r"L|mL|dL|μL|uL|"
-    r"°C|度|"
-    r"mmol/mmol|"
-    r"fl|fL|pg|"
-    r"万|亿|/|"
-    r"mmHg|cmH2O)"
+UNIT = (
+    r"(?:[×x*]10\^?\d+/L|10\^?\d+/L|mmHg|cmH2O|kPa|"
+    r"mmol/mmol|(?:[munμµ]?mol|[munμµ]?g)/(?:dL|mL|L)|"
+    r"(?:IU|U)/L|mL/(?:24\s*h|h|d|min|天|小时)|"
+    r"次/(?:分钟|分|min)|bpm|°C|度|%|cm|mm|kg|mg|[μµu]g|ng|g|"
+    r"mL|dL|[μµu]L|L|fL|pg|万|亿)(?![A-Za-zμµ/])"
+)
+NUMBER = r"[+−-]?\d+(?:\.\d+)?"
+VALUE = rf"{NUMBER}(?:\s*[/~–—至-]\s*{NUMBER})?(?![\d.])"
+NUMERIC_PATTERN = re.compile(rf"(?P<value>{VALUE})\s*(?P<unit>{UNIT})", re.IGNORECASE)
+
+METRIC_NAMES = {
+    "血红蛋白": ("Hb", "HGB"),
+    "肌酐": ("血清肌酐", "血肌酐", "SCr", "Cr"),
+    "血压": ("BP",),
+    "收缩压": ("SBP",),
+    "舒张压": ("DBP",),
+    "尿量": (),
+    "心率": ("HR",),
+    "呼吸频率": ("RR",),
+    "脉搏": (),
+    "体温": (),
+    "白细胞计数": ("白细胞", "WBC"),
+    "血小板计数": ("血小板", "PLT"),
+    "血氧饱和度": ("SpO2",),
+    "血糖": ("空腹血糖", "随机血糖"),
+    "血钾": (),
+    "血钠": (),
+}
+METRIC_ALIASES = {
+    alias.casefold(): name
+    for name, aliases in METRIC_NAMES.items()
+    for alias in (name, *aliases)
+}
+METRIC = "|".join(re.escape(alias) for alias in sorted(METRIC_ALIASES, key=len, reverse=True))
+MEASUREMENT = re.compile(
+    rf"(?<![A-Za-z])(?P<metric>{METRIC})\s*(?:[:=为]\s*)?(?P<value>{VALUE})"
+    rf"\s*(?P<unit>{UNIT})?"
+    r"(?:\s*[,，(（]?\s*(?:实验室)?(?:标记为|标|偏)?"
+    r"(?P<direction>升高|降低|高|低|↑|↓)(?!于))?",
+    re.IGNORECASE,
+)
+DIRECTIONS = {"高": "高", "升高": "高", "↑": "高", "低": "低", "降低": "低", "↓": "低"}
+LAB_RESULT = re.compile(r"实验室(?:结果)?\s*(?:标为|为|提示)?\s*(阳性|阴性)")
+SENTENCE_BREAK = re.compile(r"[。；;！？!?\n]")
+CLAUSE_BREAK = re.compile(r"[，,。；;！？!?\n]")
+NONFACT_PREFIX = re.compile(
+    r"(?:尚未|仍未|并未|未曾|未能|未|无|否认|暂不|不|暂缓|避免|无需)\s*$|"
+    r"(?:尚待|待|能否|是否|核实|确认|若|如果|一旦|不能|无法|不足以|不宜|不应|不可|不考虑|尚无依据)"
+    r".{0,16}$"
+)
+NUMERIC_CONTEXT = re.compile(r"若|如果|一旦|阈值|目标值|参考范围|参考值|拟|建议")
+OBSERVATION = r"血压|收缩压|舒张压|尿量|体温|心率|呼吸频率|脉搏|血氧饱和度"
+OBSERVATIONS = rf"(?:{OBSERVATION})(?:(?:、|和|及|与|或)(?:{OBSERVATION}))*"
+MISSING_STATE = r"未提供|未记录|未测量|未测|未查|未行|未做|无记录|不详|缺失"
+MISSING_OBSERVATION = re.compile(
+    rf"(?:{MISSING_STATE})\s*(?P<before>{OBSERVATIONS})|"
+    rf"(?P<after>{OBSERVATIONS})(?:数据|结果|资料)?\s*(?:均)?(?:{MISSING_STATE})"
+)
+NORMAL_OBSERVATION = re.compile(
+    rf"(?P<items>{OBSERVATIONS})\s*(?:均|基本|为|在)?\s*(?:正常(?:范围)?|无异常|未见异常|阴性)"
 )
 
-# 方向/阴阳性标签集合，用于检测标签错位
-DIRECTION_TAGS = ("标低", "标高", "阳性", "阴性", "升高", "降低", "偏高", "偏低")
-
-# 方向标签同义组：同组内任一词在 sources 出现，生成文本用同组其他词视为合法
-DIRECTION_SYNONYMS = (
-    {"标高", "升高", "偏高"},
-    {"标低", "降低", "偏低"},
-    {"阳性"},
-    {"阴性"},
-)
-
-
-def _direction_allowed(tag, source_tags):
-    """判断生成文本中的方向标签是否在 sources 中有同义表达。"""
-    if tag in source_tags:
-        return True
-    for group in DIRECTION_SYNONYMS:
-        if tag in group and group & source_tags:
-            return True
-    return False
-
-# 红线1：否定关系词表（原文出现这些词时，输出不得改成肯定表述）
-NEGATION_TERMS = ("未", "未见", "未提供", "未发现", "无", "不详", "缺乏", "缺如", "未查")
-# 红线1：肯定表述词表（若原文为否定，输出出现这些词视为改写）
-AFFIRMATION_TERMS = ("正常", "否认", "无异常", "未见异常", "(-)", "阴性")
-
-# 红线2：凭空补写检测的检查/病史/用药/操作关键词（命中且不在 sources 中视为补写）
-# 这里用一个较保守的常见检查项词表，避免误判
+# 红线2: 凭空补写检测词表
 KNOWN_EXAM_TERMS = (
     "血常规", "尿常规", "便常规", "肝功能", "肾功能", "电解质", "凝血",
     "心电图", "胸片", "胸部CT", "腹部B超", "腹部CT", "心脏彩超",
@@ -89,26 +309,60 @@ KNOWN_DRUG_TERMS = (
     "抗生素", "激素", "免疫抑制剂", "化疗",
 )
 
-# 红线3：计划写成已实施的关键词
-PLAN_DONE_TERMS = ("已予", "已完成", "已行", "已给", "已做", "已用", "已实施", "已执行")
+# VAL-402: 不安全治疗/药物推荐
+MEDICATION_RECOMMENDATION_VERBS = (
+    "启动", "停用", "调整", "替换", "给予", "加用", "换用",
+    "已开始", "已予", "已给", "已用",
+)
+MEDICATION_NAMES = (
+    "铁剂", "补铁", "促红素", "EPO", "输血", "利尿剂", "降压药",
+    "抗生素", "激素", "免疫抑制剂", "化疗",
+)
+DOSE_ROUTE_FREQ_TERMS = (
+    "mg", "μg", "ug", "mL", "bid", "tid", "qd", "qn",
+    "静脉", "口服", "肌注", "皮下", "静滴", "泵入",
+)
+SURGICAL_DETAIL_TERMS = (
+    "手术", "穿刺术", "活检术", "切除术", "置管术", "引流术",
+)
 
-# 红线4：时序颠倒/提前引入后续信息的标志词
-FUTURE_INFO_TERMS = ("出院", "出院时", "出院诊断", "确诊", "确诊为", "随访", "出院后", "复查确诊")
-# 常见时间词，用于简单时序检查
-TIME_ORDER_TERMS = ("入院时", "入院前", "2周", "1周", "3天", "1天", "数天", "数周", "既往")
+# VAL-401: 计划写成已实施的关键词
+PLAN_DONE = re.compile(r"已(?:经)?(?:予|完成|行(?!走)|给|做|用|实施|执行|复查|接受)")
 
-# 红线5：信息不足标志词（sources 出现时，输出应含不确定性表述）
+# VAL-502: 时序颠倒/提前引入后续信息的标志词
+FUTURE_INFO = re.compile(r"出院诊断|出院时|出院后|已出院|随访(?:显示|发现|提示|结果)|(?:复查)?确诊")
+PROSPECTIVE = re.compile(r"拟|计划|建议|待|将|若|如果|一旦|可考虑")
+DISCHARGE_PLAN = re.compile(r"^\s*(?:拟|计划|建议|待|将|可考虑)")
+
+# VAL-501: 信息不足标志词
 INSUFFICIENT_TERMS = ("待查", "未提供", "不详", "缺乏", "未查", "资料不足", "未明确")
-# 红线5：不确定性表述词（输出中应至少出现一个）
 UNCERTAINTY_TERMS = (
     "需进一步检查", "需进一步检查明确", "病因待查", "原因待查",
     "尚不能确定", "不能确定", "不能排除", "尚不明确", "有待明确",
     "需完善", "需补充", "建议进一步",
 )
-# 红线5：确定结论标志词（输出出现这些且无不确定性表述时视为硬下结论）
 DEFINITIVE_TERMS = ("确诊", "诊断为", "明确为", "就是", "即是", "确定是")
 
-# 红线7：泛化套话模板片段（命中且无本例特异信息时判定）
+# VAL-601: 鉴别方向关键词
+DIFFERENTIAL_KEYWORDS = ("考虑", "可能", "疑似", "待排除", "鉴别")
+INSUFFICIENCY_STATEMENT_TERMS = ("资料不足", "信息不足", "证据不足", "需进一步")
+
+# VAL-602: 派生值关键词
+DERIVED_VALUE_TERMS = (
+    "比值", "评分", "分期", "分级", "分类",
+    "GFR", "eGFR", "肌酐清除率",
+    "CKD", "AKI",
+)
+
+# VAL-604: 因果连接词
+CAUSAL_CONNECTIVES = (
+    "导致", "引起", "所致", "引发", "造成", "归于", "归因于",
+)
+CAUSAL_UNCERTAINTY_TERMS = (
+    "关系未明", "关系不明", "需进一步检查", "尚不能确定",
+)
+
+# 红线7: 泛化套话模板片段
 GENERIC_PHRASES = (
     "患者有症状，需进一步检查",
     "需完善相关检查",
@@ -122,7 +376,6 @@ GENERIC_PHRASES = (
 # ---------------------------------------------------------------------------
 
 def _truncate_snippet(text):
-    """截断违规片段，避免错误信息过长。"""
     if not isinstance(text, str):
         return ""
     if len(text) <= MAX_SNIPPET_LEN:
@@ -131,15 +384,10 @@ def _truncate_snippet(text):
 
 
 def _log_debug(rule_name, detail):
-    """输出统一格式的调试日志，便于排错。"""
     print(f"[validation] {rule_name}: {detail}")
 
 
 def _extract_numbers(text):
-    """从文本中提取所有"数值+单位"组合，返回结构化 token 列表。
-
-    每项为 dict: {"value": str, "unit": str, "span": (start, end)}
-    """
     if not isinstance(text, str) or not text:
         return []
     results = []
@@ -153,7 +401,6 @@ def _extract_numbers(text):
 
 
 def _all_text_values(medical_record):
-    """收集 medical_record 中所有字符串值（含 evidence.statement、review_items）。"""
     texts = []
     for field in ("case_features", "diagnostic_discussion", "plan"):
         value = medical_record.get(field)
@@ -178,386 +425,488 @@ def _joined_sources_text(original_sources):
             content = source.get("content")
             if isinstance(content, str):
                 parts.append(content)
-    return "".join(parts)
+    return "；".join(parts)
 
 
 # ---------------------------------------------------------------------------
-# 三、Schema 结构校验（spec 5.1）
+# 三、Schema 结构校验（VAL-103, VAL-104, VAL-105 + L0 guard）
 # ---------------------------------------------------------------------------
 
 def _check_schema(medical_record):
-    """校验 medical_record 的结构与类型。"""
     if not isinstance(medical_record, dict):
-        raise ValueError("medical_record 必须为对象")
-
-    # 1. 五字段存在性
+        raise _rule_error('VAL-101', 'medical_record 必须为对象')
     for field in REQUIRED_FIELDS:
         if field not in medical_record:
-            raise ValueError(f"缺少字段: {field}")
-
-    # 2. 额外字段检测
+            raise _rule_error('VAL-105' if field == 'review_items' else 'VAL-101', f'缺少字段: {field}')
     for key in medical_record:
         if key not in REQUIRED_FIELDS:
-            raise ValueError(f"额外字段: {key}")
-
-    # 3. 三段正文类型与非空
-    for field in ("case_features", "diagnostic_discussion", "plan"):
+            raise _rule_error('VAL-101', f'额外字段: {key}')
+    for field in ('case_features', 'diagnostic_discussion', 'plan'):
         value = medical_record[field]
         if not isinstance(value, str):
-            raise ValueError(f"{field} 必须为字符串")
+            raise _rule_error('VAL-102', f'{field} 必须为字符串')
         if not value.strip():
-            raise ValueError(f"{field} 非空")
-
-    # 4. evidence 嵌套结构
-    evidence = medical_record["evidence"]
+            raise _rule_error('VAL-102', f'{field} 非空')
+    evidence = medical_record['evidence']
     if not isinstance(evidence, list):
-        raise ValueError("evidence 必须为数组")
+        raise _rule_error('VAL-103', 'evidence 必须为数组')
     for i, item in enumerate(evidence):
         if not isinstance(item, dict):
-            raise ValueError(f"evidence[{i}] 必须为对象")
-        # 4a. 三字段存在性
-        for sub_field in ("statement", "source_ids", "kind"):
+            raise _rule_error('VAL-103', f'evidence[{i}] 必须为对象')
+        for sub_field in ('statement', 'source_ids', 'kind'):
             if sub_field not in item:
-                raise ValueError(f"evidence[{i}] 缺少字段: {sub_field}")
-        # 4b. 额外字段
+                raise _rule_error('VAL-103', f'evidence[{i}] 缺少字段: {sub_field}')
         for key in item:
-            if key not in ("statement", "source_ids", "kind"):
-                raise ValueError(f"evidence[{i}] 额外字段: {key}")
-        # 4c. statement 非空字符串
-        stmt = item["statement"]
+            if key not in ('statement', 'source_ids', 'kind'):
+                raise _rule_error('VAL-103', f'evidence[{i}] 额外字段: {key}')
+        stmt = item['statement']
         if not isinstance(stmt, str) or not stmt.strip():
-            raise ValueError(f"evidence[{i}] statement 非空字符串")
-        # 4d. source_ids 非空字符串数组
-        source_ids = item["source_ids"]
+            raise _rule_error('VAL-103', f'evidence[{i}] statement 非空字符串')
+        source_ids = item['source_ids']
         if not isinstance(source_ids, list) or not source_ids:
-            raise ValueError(f"evidence[{i}] source_ids 非空数组")
+            raise _rule_error('VAL-103', f'evidence[{i}] source_ids 非空数组')
         for sid in source_ids:
             if not isinstance(sid, str) or not sid.strip():
-                raise ValueError(f"evidence[{i}] source_ids 元素必须为非空字符串")
-        # 4e. kind 取值
-        if item["kind"] not in ("fact", "inference"):
-            raise ValueError(f"evidence[{i}] kind 取值非法")
-
-    # 5. review_items 结构
-    review_items = medical_record["review_items"]
+                raise _rule_error('VAL-103', f'evidence[{i}] source_ids 元素必须为非空字符串')
+        if item['kind'] not in ('fact', 'inference'):
+            raise _rule_error('VAL-104', f'evidence[{i}] kind 取值非法')
+    review_items = medical_record['review_items']
     if not isinstance(review_items, list):
-        raise ValueError("review_items 必须为数组")
+        raise _rule_error('VAL-105', 'review_items 必须为数组')
     for i, item in enumerate(review_items):
         if not isinstance(item, str):
-            raise ValueError(f"review_items[{i}] 必须为字符串")
-
-    # 6. 代码围栏扫描
+            raise _rule_error('VAL-105', f'review_items[{i}] 必须为字符串')
     for text in _all_text_values(medical_record):
-        if "```" in text:
-            raise ValueError("代码围栏: 输出含 Markdown 代码围栏")
-
-    _log_debug("schema", "结构校验通过")
+        if '```' in text:
+            raise _rule_error('VAL-106', '代码围栏: 输出含 Markdown 代码围栏')
+    _log_debug('schema', '结构校验通过')
 
 
 # ---------------------------------------------------------------------------
-# 四、source_ids 溯源校验（spec 5.2）
+# 四、source_ids 溯源校验（VAL-202, VAL-201）
 # ---------------------------------------------------------------------------
 
 def _check_source_trace(medical_record, original_sources):
-    """校验 evidence[].source_ids 均来自当前病例。"""
-    # 收集当前病例所有合法 source_id
     valid_ids = set()
     for source in original_sources or []:
         if isinstance(source, dict):
-            sid = source.get("source_id")
+            sid = source.get('source_id')
             if isinstance(sid, str) and sid.strip():
                 valid_ids.add(sid)
-
-    evidence = medical_record.get("evidence", []) or []
-
-    # 1. evidence 条数
+    evidence = medical_record.get('evidence', []) or []
     if len(evidence) < EVIDENCE_MIN:
-        raise ValueError("evidence 至少 1 条")
+        raise _rule_error('VAL-201', 'evidence 至少 1 条')
     if len(evidence) > EVIDENCE_SUGGEST_MAX:
-        _log_debug("source_trace", f"evidence 条数偏多: {len(evidence)}")
-
-    # 2. source_ids 子集校验
+        _log_debug('source_trace', f'evidence 条数偏多: {len(evidence)}')
     for i, item in enumerate(evidence):
-        for sid in item.get("source_ids", []) or []:
+        for sid in item.get('source_ids', []) or []:
             if sid not in valid_ids:
-                raise ValueError(f"来源不存在: {sid}")
-
-    _log_debug("source_trace", f"溯源校验通过，合法来源 {len(valid_ids)} 个")
+                raise _rule_error('VAL-202', f'来源不存在: {sid}')
+    _log_debug('source_trace', f'溯源校验通过，合法来源 {len(valid_ids)} 个')
 
 
 # ---------------------------------------------------------------------------
-# 五、数值回溯校验（spec 5.3）—— 收集错误，不直接抛出
+# 五、数值回溯校验（VAL-301）—— 收集错误，不直接抛出
 # ---------------------------------------------------------------------------
+
+
+def _numeric_key(value, unit):
+    parts = re.split(r"\s*([/~–—至-])\s*(?=[+−-]?\d)", value.lstrip("+−-"))
+    if len(parts) == 1:
+        values = (Decimal(value.replace("−", "-")),)
+        separator = None
+    else:
+        sign = value[0] if value[0] in "+−-" else ""
+        first, separator, second = parts
+        values = (Decimal((sign + first).replace("−", "-")), Decimal(second.replace("−", "-")))
+        separator = "/" if separator == "/" else "range"
+    unit = re.sub(r"\s+", "", unit).casefold().replace("μ", "u")
+    return (values, separator), unit
+
+
+def _measurements(text, *, generated=False):
+    """提取指标、数值和单位，同时保留无指标名称的带单位数字。"""
+    for sentence in SENTENCE_BREAK.split(unicodedata.normalize("NFKC", text)):
+        named = list(MEASUREMENT.finditer(sentence))
+        for match in named:
+            prefix = CLAUSE_BREAK.split(sentence[:match.start()])[-1]
+            if generated and NUMERIC_CONTEXT.search(prefix):
+                continue
+            metric = METRIC_ALIASES[match["metric"].casefold()]
+            value, unit = _numeric_key(match["value"], match["unit"] or "")
+            yield metric, value, unit, DIRECTIONS.get(match["direction"])
+        for token in _extract_numbers(sentence):
+            start, end = token["span"]
+            if any(start < match.end() and end > match.start() for match in named):
+                continue
+            prefix = CLAUSE_BREAK.split(sentence[:start])[-1]
+            if generated and NUMERIC_CONTEXT.search(prefix):
+                continue
+            value, unit = _numeric_key(token["value"], token["unit"])
+            yield None, value, unit, None
+
+
+def _numeric_errors(text, field, measurements, metrics_with_units):
+    for metric, value, unit, direction in _measurements(text, generated=True):
+        candidates = [entry for entry in measurements if metric is None or entry[0] == metric]
+        matching = [entry for entry in candidates if entry[1:3] == (value, unit)]
+        if not matching and (unit or metric in metrics_with_units):
+            kind = "value_mismatch" if unit else "unit_missing"
+            separator = "–" if value[1] == "range" else value[1] or ""
+            rendered = separator.join(format(number, "f") for number in value[0])
+            name = metric or "数值"
+            yield {"kind": kind, "detail": f"{field} 的{name} {rendered} {unit} 与资料数值、单位或来源不符"}
+        markers = {entry[3] for entry in matching if entry[3]}
+        if direction and markers and direction not in markers:
+            yield {"kind": "label_mismatch", "detail": f"{field} 的{metric}高低标记与资料不符"}
+
+
+def _asserted_matches(pattern, clause):
+    for match in pattern.finditer(clause):
+        if NONFACT_PREFIX.search(clause[:match.start()]):
+            continue
+        if clause[match.end():].lstrip().startswith(("与否", "吗")):
+            continue
+        yield match
+
+
+EXAM = r"尿检|尿常规|血常规|心电图|胸片|肝功能|肾功能"
+EXAM_GROUP = rf"(?:{EXAM})(?:(?:、|和|及|与)(?:{EXAM}))*"
+EXAM_MISSING = re.compile(
+    rf"(?:未提供|未行|未做|未查|无记录)\s*(?P<before>{EXAM_GROUP})|"
+    rf"(?P<after>{EXAM_GROUP})(?:结果|资料)?(?:未提供|未行|未做|未查|无记录)"
+)
+EXAM_NORMAL = re.compile(
+    rf"(?P<exam>{EXAM})\s*(?:结果|提示|显示)?\s*(?:为|均)?(?:正常|阴性|无异常|未见异常)"
+)
+
 
 def _check_numeric_trace(medical_record, original_sources):
-    """比对生成文本与 sources 中的数值，返回错误列表（不抛出）。
-
-    每项错误为 dict: {"kind": str, "detail": str}
-    """
-    errors = []
-
-    # sources 中的数值集合（基准）
+    """正文对照当前病例，证据条目对照各自引用的片段。"""
+    by_source = {
+        source["source_id"]: list(_measurements(source["content"]))
+        for source in original_sources
+    }
+    measurements = [entry for entries in by_source.values() for entry in entries]
+    metrics_with_units = {metric for metric, _, unit, _ in measurements if metric and unit}
     sources_text = _joined_sources_text(original_sources)
-    source_numbers = _extract_numbers(sources_text)
-    # 数值字符串集合，用于快速判定"数值是否在 sources 中出现过"
-    source_value_set = {n["value"] for n in source_numbers}
-    # 数值+单位组合集合
-    source_pair_set = {(n["value"], n["unit"]) for n in source_numbers}
-
-    # 生成文本中的数值
+    errors = []
     for field in ("case_features", "diagnostic_discussion", "plan"):
-        text = medical_record.get(field, "")
-        if not isinstance(text, str):
-            continue
-        gen_numbers = _extract_numbers(text)
-        for n in gen_numbers:
-            value = n["value"]
-            unit = n["unit"]
-            # 单位缺失检测：若单位为空或仅为分隔符
-            if not unit or unit in ("/",):
-                errors.append({
-                    "kind": "unit_missing",
-                    "detail": f"{field} 中数值 {value} 缺少单位",
-                })
-                continue
-            # 数值抄错：数值未在 sources 任一处出现
-            if value not in source_value_set:
-                errors.append({
-                    "kind": "value_mismatch",
-                    "detail": f"{field} 中数值 {value} {unit} 未见于原始资料",
-                })
-                continue
-            # 数值+单位组合不匹配
-            if (value, unit) not in source_pair_set:
-                errors.append({
-                    "kind": "value_mismatch",
-                    "detail": f"{field} 中 {value} {unit} 与原始资料单位不符",
-                })
-
-    # 方向标签错位检测
-    _detect_label_mismatch(medical_record, sources_text, errors)
-
-    if errors:
-        _log_debug("numeric_trace", f"发现 {len(errors)} 处数值/单位/标签问题")
-    else:
-        _log_debug("numeric_trace", "数值回溯通过")
+        text = medical_record[field]
+        errors.extend(_numeric_errors(text, field, measurements, metrics_with_units))
+        for result in LAB_RESULT.findall(text):
+            if result not in sources_text:
+                errors.append({"kind": "label_mismatch", "detail": f"{field} 的实验室{result}未见于资料"})
+    for index, item in enumerate(medical_record["evidence"]):
+        cited = [entry for sid in item["source_ids"] for entry in by_source.get(sid, ())]
+        errors.extend(
+            _numeric_errors(item["statement"], f"evidence[{index}].statement", cited, metrics_with_units)
+        )
+    _log_debug("numeric_trace", f"发现 {len(errors)} 处数值/单位/标签问题" if errors else "数值回溯通过")
     return errors
 
 
-def _detect_label_mismatch(medical_record, sources_text, errors):
-    """检测方向标签错位（如原文"标低"被写为"标高"）。"""
-    # 统计 sources 中出现的方向标签
-    source_tags = {tag for tag in DIRECTION_TAGS if tag in sources_text}
-    if not source_tags:
-        return
-
-    for field in ("case_features", "diagnostic_discussion", "plan"):
-        text = medical_record.get(field, "")
-        if not isinstance(text, str):
-            continue
-        for tag in DIRECTION_TAGS:
-            if tag in text and not _direction_allowed(tag, source_tags):
-                # 生成文本出现了 sources 中没有（且无同义表达）的方向标签
-                errors.append({
-                    "kind": "label_mismatch",
-                    "detail": f"{field} 中方向标签 '{tag}' 未见于原始资料",
-                })
-
-
 # ---------------------------------------------------------------------------
-# 六、医学红线拦截（spec 5.4）
+# 六、医学红线拦截（VAL-302, VAL-402, VAL-401, VAL-502, VAL-501, VAL-301, VAL-601, VAL-602, VAL-603, VAL-604）
 # ---------------------------------------------------------------------------
+
+NEGATIVE_CONTEXT_TERMS = ("不能确认", "不能排除", "否认", "未确认", "未排除", "无法确认", "无法排除")
+
 
 def _check_red_line_1(medical_record, original_sources):
-    """红线1：否定关系被改写。"""
-    sources_text = _joined_sources_text(original_sources)
-    # 找出 sources 中的否定表述片段
-    negation_phrases = []
-    for term in NEGATION_TERMS:
-        if term in sources_text:
-            negation_phrases.append(term)
+    """只有同一项目明确缺失且输出断言正常时才拦截。"""
+    sources = unicodedata.normalize('NFKC', _joined_sources_text(original_sources))
+    symptom = '胸痛|胸闷|咯血|黑便|肉眼血尿|血尿|发热|咳嗽|出血'
+    denied = {match['symptom'] for match in re.finditer(f'(?:患者)?否认\\s*(?P<symptom>{symptom})', sources)}
+    objective = re.compile(f'(?P<symptom>{symptom})\\s*(?:为|结果|检查|客观)?\\s*(?:阴性|正常|已排除)')
+    for text in _all_text_values(medical_record):
+        for clause in CLAUSE_BREAK.split(text):
+            for match in _asserted_matches(objective, clause):
+                if match['symptom'] in denied:
+                    raise _rule_error('VAL-302', f"否认{match['symptom']}被改写为客观结果")
+    missing = {
+        item
+        for match in MISSING_OBSERVATION.finditer(sources)
+        for item in re.findall(OBSERVATION, match["before"] or match["after"])
+    }
+    for clause in CLAUSE_BREAK.split(sources):
+        for match in _asserted_matches(NORMAL_OBSERVATION, clause):
+            missing.difference_update(re.findall(OBSERVATION, match['items']))
+    missing.difference_update((metric for metric, _, unit, _ in _measurements(sources) if unit))
+    for text in _all_text_values(medical_record):
+        for clause in CLAUSE_BREAK.split(unicodedata.normalize('NFKC', text)):
+            for match in _asserted_matches(NORMAL_OBSERVATION, clause):
+                contradicted = sorted(missing.intersection(re.findall(OBSERVATION, match['items'])))
+                if contradicted:
+                    raise _rule_error('VAL-302', f"{'、'.join(contradicted)}在资料中缺失，却被写为正常")
+    _log_debug('VAL-302', '否定关系保留')
 
-    if not negation_phrases:
-        return
 
-    # 检查生成文本是否将否定改成肯定
-    gen_text = " ".join(_all_text_values(medical_record))
-    # 简化策略：若 sources 含"未提供X"且生成文本对应位置出现肯定表述，判定改写
-    # 这里采用保守检测：若 sources 含"未提供"且生成文本对同一概念用"正常/否认"表述
-    for affirm in AFFIRMATION_TERMS:
-        if affirm in gen_text:
-            # 进一步确认：生成文本中肯定表述附近是否对应 sources 中的否定项
-            # 保守起见，仅当 sources 明确含"未提供/不详"且生成文本含"正常/否认"时告警
-            for neg in ("未提供", "不详", "未见", "未"):
-                if neg in sources_text and affirm in ("正常", "否认", "无异常", "未见异常"):
-                    raise ValueError(
-                        f"红线1: 否定关系被改写: "
-                        f"原文含 '{neg}'，输出出现 '{affirm}'"
-                    )
-
-    _log_debug("red_line_1", "否定关系保留")
+def _check_missing_exams(medical_record, original_sources):
+    sources = _joined_sources_text(original_sources)
+    missing = {exam for match in EXAM_MISSING.finditer(sources) for exam in re.findall(EXAM, match['before'] or match['after'])}
+    if re.search('否认(?:肉眼)?血尿', sources) and (not re.search('(?:尿检|尿常规).{0,6}(?:正常|阴性)', sources)):
+        missing.update(('尿检', '尿常规'))
+    for clause in CLAUSE_BREAK.split(sources):
+        for match in _asserted_matches(EXAM_NORMAL, clause):
+            missing.discard(match['exam'])
+    for text in _all_text_values(medical_record):
+        for clause in CLAUSE_BREAK.split(text):
+            for match in _asserted_matches(EXAM_NORMAL, clause):
+                if match['exam'] in missing:
+                    raise _rule_error('VAL-302', f"{match['exam']}缺少客观结果，却被写为正常或阴性")
 
 
 def _check_red_line_2(medical_record, original_sources):
-    """红线2：凭空补写（输出出现资料中没有的检查/病史/用药）。
-
-    仅扫描事实性陈述字段（case_features、diagnostic_discussion），
-    不扫描 plan——计划中提出新检查是合理的。
-    """
+    """VAL-303：词表内事实缺少原始资料支持。"""
     sources_text = _joined_sources_text(original_sources)
     fact_text = " ".join([
         medical_record.get("case_features", "") or "",
         medical_record.get("diagnostic_discussion", "") or "",
     ])
-
-    # 检查项：生成文本出现但 sources 未提及
     for term in KNOWN_EXAM_TERMS:
         if term in fact_text and term not in sources_text:
-            raise ValueError(
-                f"红线2: 凭空补写: 检查项 '{term}' 未见于原始资料"
-            )
-
-    # 用药/操作：生成文本出现但 sources 未提及
+            raise _rule_error('VAL-303', f"凭空补写: 检查项 '{term}' 未见于原始资料")
     for term in KNOWN_DRUG_TERMS:
         if term in fact_text and term not in sources_text:
-            raise ValueError(
-                f"红线2: 凭空补写: 用药/操作 '{term}' 未见于原始资料"
-            )
+            raise _rule_error('VAL-303', f"凭空补写: 用药/操作 '{term}' 未见于原始资料")
+    _log_debug('VAL-303', '无凭空补写')
 
-    _log_debug("red_line_2", "无凭空补写")
+
+def _check_treatment_plan(medical_record, original_sources):
+    """检查明确的药物启停/剂量推荐，忽略否定、核实与其他指标的单位。"""
+    drug_pattern = '|'.join((re.escape(term) for term in MEDICATION_NAMES))
+    action = re.compile('|'.join((re.escape(term) for term in MEDICATION_RECOMMENDATION_VERBS)))
+    dosing = re.compile('|'.join((re.escape(term) for term in DOSE_ROUTE_FREQ_TERMS)))
+    for clause in CLAUSE_BREAK.split(medical_record['plan']):
+        for match in _asserted_matches(action, clause):
+            nearby = clause[max(0, match.start() - 15):match.end() + 15]
+            if re.search(drug_pattern, nearby):
+                raise _rule_error('VAL-402', f'不安全治疗推荐: {clause}')
+        if re.search(drug_pattern, clause):
+            for match in _asserted_matches(dosing, clause):
+                raise _rule_error('VAL-402', f'药物剂量/途径/频次需要复核: {clause}')
+        for term in SURGICAL_DETAIL_TERMS:
+            pattern = re.compile(re.escape(term))
+            for match in _asserted_matches(pattern, clause):
+                raise _rule_error('VAL-402', f'手术/侵入性计划需要复核: {clause}')
+    _log_debug('VAL-402', '未发现明确的药物启停、剂量或侵入性计划')
 
 
 def _check_red_line_3(medical_record, original_sources):
-    """红线3：计划写成已实施。"""
-    plan = medical_record.get("plan", "")
-    if not isinstance(plan, str):
-        return
-    for term in PLAN_DONE_TERMS:
-        if term in plan:
-            idx = plan.find(term)
-            snippet = _truncate_snippet(plan[max(0, idx - 10):idx + len(term) + 10])
-            raise ValueError(f"红线3: 计划写成已实施: {snippet}")
-    _log_debug("red_line_3", "计划表述合规")
+    """拦截计划中对已实施操作的断言。"""
+    for clause in CLAUSE_BREAK.split(medical_record['plan']):
+        for match in _asserted_matches(PLAN_DONE, clause):
+            snippet = _truncate_snippet(clause[max(0, match.start() - 10):match.end() + 10])
+            raise _rule_error('VAL-401', f'计划写成已实施: {snippet}')
+    _log_debug('VAL-401', '计划表述合规')
 
 
 def _check_red_line_4(medical_record, original_sources):
-    """红线4：时序颠倒/提前引入后续信息。"""
-    gen_text = " ".join(_all_text_values(medical_record))
-    for term in FUTURE_INFO_TERMS:
-        if term in gen_text:
-            raise ValueError(
-                f"红线4: 时序颠倒: 提前引入后续信息 '{term}'"
-            )
-    _log_debug("red_line_4", "时序正常")
+    """检查明确写入草稿的后续结果，保留待核和计划表述。"""
+    sources = _joined_sources_text(original_sources)
+    for text in _all_text_values(medical_record):
+        for clause in CLAUSE_BREAK.split(text):
+            if clause.strip() and clause.strip() in sources:
+                continue
+            for match in _asserted_matches(FUTURE_INFO, clause):
+                if PROSPECTIVE.search(clause[:match.start()]):
+                    continue
+                if match.group() in ('出院时', '出院后') and DISCHARGE_PLAN.match(clause[match.end():]):
+                    continue
+                raise _rule_error('VAL-502', f"提前引入后续信息 '{match.group()}'")
+    _log_debug('VAL-502', '未发现明确的后续结果')
 
 
 def _check_red_line_5(medical_record, original_sources):
-    """红线5：信息不足硬下结论。"""
+    """VAL-501：信息不足却使用确定性判断。"""
     sources_text = _joined_sources_text(original_sources)
-
-    # 判断 sources 是否提示信息不足
-    insufficient = any(term in sources_text for term in INSUFFICIENT_TERMS)
+    insufficient = any((term in sources_text for term in INSUFFICIENT_TERMS))
     if not insufficient:
-        _log_debug("red_line_5", "资料充分，跳过信息不足检测")
+        _log_debug('VAL-501', '资料充分，跳过信息不足检测')
         return
-
-    gen_text = " ".join(_all_text_values(medical_record))
-    # 输出是否含不确定性表述
-    has_uncertainty = any(term in gen_text for term in UNCERTAINTY_TERMS)
+    gen_text = ' '.join(_all_text_values(medical_record))
+    has_uncertainty = any((term in gen_text for term in UNCERTAINTY_TERMS))
     if has_uncertainty:
-        _log_debug("red_line_5", "已包含不确定性表述")
+        _log_debug('VAL-501', '已包含不确定性表述')
         return
-
-    # 输出是否含确定结论且无不确定性表述
     for term in DEFINITIVE_TERMS:
         if term in gen_text:
-            raise ValueError(
-                f"红线5: 信息不足硬下结论: 出现 '{term}' 但无不确定性表述"
-            )
-
-    # 资料明显不足但输出完全没有不确定性表述，也视为硬下结论
-    raise ValueError("红线5: 信息不足硬下结论: 缺少不确定性表述")
+            raise _rule_error('VAL-501', f"信息不足硬下结论: 出现 '{term}' 但无不确定性表述")
+    _log_debug('VAL-501', '无确定性措辞，不报')
 
 
 def _check_red_line_6(numeric_errors):
-    """红线6：数值/单位/方向错误汇总入口。"""
+    """VAL-301：数值核对错误汇总。"""
     if numeric_errors:
         first = numeric_errors[0]
-        detail = _truncate_snippet(first.get("detail", ""))
-        raise ValueError(f"红线6: 数值/单位/方向错误: {detail}")
-    _log_debug("red_line_6", "数值/单位/方向无误")
+        detail = first.get('detail', '')
+        raise _rule_error('VAL-301', f'数值/单位/方向错误: {detail}')
+    _log_debug('VAL-301', '数值/单位/方向无误')
 
 
 def _check_red_line_7(medical_record, original_sources):
-    """红线7：泛化套话（缺少本例特异信息）。"""
+    """VAL-503：通过数字和症状词粗查个体化信息。"""
     sources_text = _joined_sources_text(original_sources)
-    gen_text = " ".join(_all_text_values(medical_record))
-
-    # 提取本例特异数值
+    gen_text = ' '.join(_all_text_values(medical_record))
     source_numbers = _extract_numbers(sources_text)
-    specific_values = [n["value"] for n in source_numbers]
-
-    # 若生成文本不含任一特异数值，且不含 sources 中的特异症状词，判定为泛化
-    has_specific_value = any(v in gen_text for v in specific_values)
-
-    # 从 sources 提取一些特异症状词（简单取 2 字以上的中文片段）
+    specific_values = [n['value'] for n in source_numbers]
+    has_specific_value = any((v in gen_text for v in specific_values))
     specific_terms = []
-    for term in ("乏力", "心悸", "水肿", "苍白", "黑便", "血尿", "出血"):
+    for term in ('乏力', '心悸', '水肿', '苍白', '黑便', '血尿', '出血'):
         if term in sources_text:
             specific_terms.append(term)
-    has_specific_term = any(term in gen_text for term in specific_terms)
-
-    if not has_specific_value and not has_specific_term:
-        # 进一步确认是否为泛化模板
+    has_specific_term = any((term in gen_text for term in specific_terms))
+    if not has_specific_value and (not has_specific_term):
         for phrase in GENERIC_PHRASES:
             if phrase in gen_text:
-                raise ValueError(f"红线7: 泛化套话: 含 '{phrase}' 且无本例特异信息")
-        # 即使没有模板短语，但完全无特异信息也告警
+                raise _rule_error('VAL-503', f"泛化套话: 含 '{phrase}' 且无本例特异信息")
         if specific_values or specific_terms:
-            raise ValueError("红线7: 泛化套话: 缺少本例特异信息")
+            raise _rule_error('VAL-503', '泛化套话: 缺少本例特异信息')
+    _log_debug('VAL-503', '含本例特异信息')
 
-    _log_debug("red_line_7", "含本例特异信息")
+
+def _check_differential_review(medical_record, original_sources):
+    """VAL-601: 鉴别方向过度生产（advisory，不 raise）。"""
+    diagnostic_discussion = medical_record.get("diagnostic_discussion", "")
+    if not isinstance(diagnostic_discussion, str) or not diagnostic_discussion:
+        return []
+
+    direction_count = 0
+    for kw in DIFFERENTIAL_KEYWORDS:
+        direction_count += diagnostic_discussion.count(kw)
+
+    findings = []
+    if direction_count == 0:
+        has_insufficiency = any(
+            term in diagnostic_discussion
+            for term in INSUFFICIENCY_STATEMENT_TERMS
+        )
+        if not has_insufficiency:
+            findings.append({
+                "rule_id": "VAL-601", "field": "diagnostic_discussion",
+                "detail": "鉴别方向数量为0且无不足说明",
+                "advisory": True,
+            })
+
+    if direction_count > 3:
+        findings.append({
+            "rule_id": "VAL-601", "field": "diagnostic_discussion",
+            "detail": f"鉴别方向数量偏多({direction_count}个)，可能为凑数",
+            "advisory": True,
+        })
+
+    if findings:
+        _record_hit("VAL-601")
+    _log_debug("VAL-601", f"鉴别方向检查完成，findings={len(findings)}")
+    return findings
+
+
+def _check_derived_review(medical_record, original_sources):
+    """来源已有的术语可作为事实。新派生结论需要对应的推断证据。"""
+    sources_text = _joined_sources_text(original_sources)
+    findings = []
+    for term in DERIVED_VALUE_TERMS:
+        if term in sources_text:
+            continue
+        for field in ("case_features", "diagnostic_discussion", "plan"):
+            if term not in medical_record[field]:
+                continue
+            supported = any(
+                term in item["statement"] and item["kind"] == "inference"
+                for item in medical_record["evidence"]
+            )
+            if not supported:
+                findings.append({
+                    "rule_id": "VAL-602", "field": field, "advisory": True,
+                    "detail": f"出现资料中未列出的派生术语 {term}，需复核依据及推断标注",
+                })
+    if findings:
+        _record_hit("VAL-602")
+    return findings
+
+
+def _check_multiple_results_review(medical_record, original_sources):
+    """对同指标同单位的多个结果提醒复核，时间信息不足时不自动判冲突。"""
+    observations = {}
+    for source in original_sources:
+        for metric, value, unit, _ in _measurements(source["content"]):
+            if metric and unit:
+                observations.setdefault((metric, unit), set()).add(value)
+    findings = []
+    review_text = " ".join(medical_record["review_items"])
+    for (metric, unit), values in observations.items():
+        if len(values) < 2:
+            continue
+        if metric in review_text and re.search("冲突|不一致|矛盾|差异|不同|核实", review_text):
+            continue
+        findings.append({
+            "rule_id": "VAL-603", "field": "review_items", "advisory": True,
+            "detail": f"{metric}存在多个{unit}结果，需结合采样时间核对是否冲突",
+        })
+    if findings:
+        _record_hit("VAL-603")
+    return findings
+
+
+def _check_causality_review(medical_record, original_sources):
+    """VAL-604: 因果归因检测（advisory，不 raise）。"""
+    gen_text = " ".join(_all_text_values(medical_record))
+
+    findings = []
+    for connective in CAUSAL_CONNECTIVES:
+        if connective in gen_text:
+            has_uncertainty = any(
+                term in gen_text
+                for term in CAUSAL_UNCERTAINTY_TERMS
+            )
+            if not has_uncertainty:
+                findings.append({
+                    "rule_id": "VAL-604", "field": "medical_record",
+                    "detail": f"因果归因: 出现 '{connective}' 但无不确定性表述",
+                    "advisory": True,
+                })
+
+    if findings:
+        _record_hit("VAL-604")
+    _log_debug("VAL-604", f"因果归因检查完成，findings={len(findings)}")
+    return findings
 
 
 # ---------------------------------------------------------------------------
 # 七、入口编排
 # ---------------------------------------------------------------------------
 
-def validate_record(medical_record, original_sources):
+def validate_record(medical_record, original_sources, *, findings=None):
     """
     校验单条病例的 medical_record 是否合规。
 
     校验通过：直接 return。
-    校验失败：raise ValueError("错误原因")。
+    校验失败：raise ValueError("VAL-xxx: 错误原因")。
 
     参数：
         medical_record: 模型生成并解析后的病历对象（五字段）
         original_sources: 当前病例的 sources 列表（用于溯源与比对）
     """
-    evidence_count = len(medical_record.get("evidence", []) or []) if isinstance(medical_record, dict) else 0
-    sources_count = len(original_sources or [])
-    _log_debug("entry", f"开始校验: evidence={evidence_count} 条, sources={sources_count} 条")
-
-    # 1. Schema 结构校验
     _check_schema(medical_record)
-
-    # 2. source_ids 溯源校验
+    evidence_count = len(medical_record['evidence'])
+    sources_count = len(original_sources or [])
+    _log_debug('entry', f'开始校验: evidence={evidence_count} 条, sources={sources_count} 条')
     _check_source_trace(medical_record, original_sources)
-
-    # 3. 数值回溯（收集错误，不抛出）
     numeric_errors = _check_numeric_trace(medical_record, original_sources)
-
-    # 4. 红线 1-5（顺序判定，首个命中即抛出）
     _check_red_line_1(medical_record, original_sources)
+    _check_missing_exams(medical_record, original_sources)
     _check_red_line_2(medical_record, original_sources)
     _check_red_line_3(medical_record, original_sources)
+    _check_treatment_plan(medical_record, original_sources)
     _check_red_line_4(medical_record, original_sources)
     _check_red_line_5(medical_record, original_sources)
-
-    # 5. 红线6：数值/单位/方向错误汇总
     _check_red_line_6(numeric_errors)
-
-    # 6. 红线7：泛化套话
     _check_red_line_7(medical_record, original_sources)
+    for check in (_check_derived_review, _check_multiple_results_review, _check_differential_review, _check_causality_review):
+        advice = check(medical_record, original_sources)
+        if findings is not None:
+            findings.extend(advice)
+    _log_debug('entry', '全部校验通过')
 
-    _log_debug("entry", "全部校验通过")
+

@@ -10,7 +10,7 @@ from tests.conftest import make_valid_medical_record
 class TestCheckSchema:
     def test_valid_record_passes(self):
         record = make_valid_medical_record()
-        _check_schema(record)  # 不抛异常
+        _check_schema(record)
 
     def test_non_dict_raises(self):
         with pytest.raises(ValueError, match="必须为对象"):
@@ -85,7 +85,7 @@ class TestCheckSchema:
     def test_review_items_empty_passes(self):
         record = make_valid_medical_record()
         record["review_items"] = []
-        _check_schema(record)  # 空数组允许
+        _check_schema(record)
 
     def test_review_items_non_string(self):
         record = make_valid_medical_record()

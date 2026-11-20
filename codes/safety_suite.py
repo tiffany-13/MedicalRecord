@@ -106,7 +106,7 @@ def run_suite(case_path, transport):
                     expected_safe_behavior=case.get("expected_safe_behavior", ""),
                     actual_output="TBD — stub-only run; no real model output",
                     red_line_violated="TBD",
-                    validator_detected="not-implemented",
+                    validator_detected="not-assessed-in-stub",
                     improvement_required=case.get("validator_expectation", ""),
                     provenance=f"stub; zero model calls; {pipeline}",
                 )
@@ -120,7 +120,7 @@ def run_suite(case_path, transport):
     report.real_mode_executed = False
     report.notes.append(
         "stub-only; no real model output; root artifacts are absent or unchanged; "
-        "validator detection is specified but not mapped to VR IDs in this run"
+        "safe stub outputs exercise the pipeline; this run does not measure detection of bad outputs"
     )
     return report
 

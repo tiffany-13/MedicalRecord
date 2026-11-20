@@ -45,9 +45,9 @@ class TestExtractNumbers:
         assert result[1]["value"] == "185"
 
     def test_no_unit_not_matched(self):
-        # "肌酐 185" 后无单位，不应被 NUMERIC_PATTERN 捕获到带单位的 token
+
         result = _extract_numbers("肌酐 185 之后")
-        # 185 后无合法单位，应不匹配
+
         assert len(result) == 0
 
     def test_empty_text(self):

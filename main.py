@@ -6,6 +6,8 @@ from pathlib import Path
 
 from prompts.prompt_v1 import PROMPT_VERSION, build_messages, load_system_prompt
 from src.api_client import RUN_LOGS, call_llm, get_config, parse_json_response
+from src.api_client import ParameterRejectedError
+import src.run_config as run_config
 
 BASE_DIR = Path(__file__).resolve().parent
 INPUT_FILE = BASE_DIR / "input.json"
@@ -80,20 +82,31 @@ def process_case(case):
 
     try:
         raw_text = call_llm(case_id, messages)
+    except ParameterRejectedError as exc:
+        return case_error(case_id, exc.code, str(exc))
     except Exception as exc:
-        return case_error(case_id, "MODEL_ERROR", str(exc))
+        code = getattr(exc, "code", "MODEL_ERROR")
+        return case_error(case_id, code, str(exc))
 
     try:
         medical_record = parse_json_response(raw_text)
     except Exception:
         return case_error(case_id, "JSON_PARSE_ERROR", "模型返回的内容无法解析为合法 JSON")
 
+    findings = []
     try:
         from src.validation import validate_record
 
-        validate_record(medical_record, case_data["sources"])
+        validate_record(medical_record, case_data["sources"], findings=findings)
     except Exception as exc:
         return case_error(case_id, "VALIDATION_ERROR", str(exc))
+    finally:
+        for entry in reversed(RUN_LOGS):
+            if entry.get("case_id") == case_id:
+                entry["validation_findings"] = [
+                    {"case_id": case_id, **finding} for finding in findings
+                ]
+                break
 
     return {
         "case_id": case_id,
@@ -103,8 +116,16 @@ def process_case(case):
     }
 
 
+def add_run_log_metadata():
+    for entry in RUN_LOGS:
+        entry["prompt_version"] = PROMPT_VERSION
+        for key, value in run_config.envelope_for_log().items():
+            entry.setdefault(key, value)
+
+
 def main():
     RUN_LOGS.clear()
+    run_config.start_run()
     get_config()
 
     try:
@@ -135,8 +156,7 @@ def main():
         with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
             results = list(executor.map(process_case, cases))
 
-        for entry in RUN_LOGS:
-            entry["prompt_version"] = PROMPT_VERSION
+        add_run_log_metadata()
 
         write_json_atomic(OUTPUT_FILE, TEMP_FILE, results)
         write_json_atomic(LOG_FILE, LOG_TEMP_FILE, RUN_LOGS)
