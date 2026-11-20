@@ -17,7 +17,7 @@
 ├── src/
 │   ├── api_client.py               # 调用真实或 Mock 服务；构建请求、解析响应、记录 attempt 和参数拒绝
 │   ├── run_config.py               # 参数信封唯一来源；管理 seed、temperature、response_format 和 Thinking 状态
-│   └── validation.py               # 校验五字段、来源、数值、否定、时序、计划和医学红线；返回 VAL-xxx 异常
+│   └── validation.py               # 校验结构、来源、数值、否定、时序、计划和医学红线；使用 VAL-xxx 编号
 ├── prompts/
 │   ├── system_v1.txt               # 当前 runtime 系统提示词资产
 │   ├── prompt_v1.py                # 加载 Prompt；按病例组装 system/user 消息
@@ -40,6 +40,10 @@
 ├── tests/
 │   ├── conftest.py                 # 测试共享病例、来源和合规病历夹具
 │   ├── test_parameter_envelope.py  # 参数接线、payload、无 Authorization 和日志信封测试
+│   ├── test_rule_ids.py            # VAL 规则编号、注册表和异常标识测试
+│   ├── test_validation_merge.py    # 数值合并、派生指标和复核提醒测试
+│   ├── test_validation_st.py        # 安全场景和医学边界测试
+│   ├── test_validation_helpers.py  # 校验辅助函数测试
 │   ├── test_validation_schema.py   # 五字段和 evidence/review_items 结构测试
 │   ├── test_validation_trace.py    # evidence 来源回溯测试
 │   ├── test_validation_numeric.py  # 数值、单位、方向和标签测试
@@ -147,14 +151,18 @@ python main.py
 - 按提示词资产和病例来源组装 system/user 消息。
 - 从 `.env` 读取 `MODEL_NAME` 和完整 `ENDPOINT`，不读取 API 密钥、不发送 `Authorization`。
 - 构建包含 `model`、`messages` 和 `stream=false` 的请求，并按配置添加 seed、temperature、response_format 或 Thinking 参数。
-- 参数端点拒绝时返回清晰的 `PARAMETER_REJECTED` 状态，不静默忽略或重复发送被拒绝参数。
+- 参数拒绝时返回清晰的 `PARAMETER_REJECTED` 状态，不静默忽略或重复发送被拒绝参数。
+- 对鉴权、限流、超时、连接、服务端、HTTP 响应和响应结构错误返回稳定的模型错误码。
 - 解析模型返回的 `choices[0].message.content`，并重构为约定的五字段病历对象。
-- 校验五字段结构、依据来源、数值及部分否定、时序、计划、信息不足和泛化套话规则。
-- 所有校验拦截均返回固定的 VAL 编号、规则名称和具体原因，编号与计数由 RULE_REGISTRY 统一管理。
+- 校验五字段结构、证据来源、数值、单位、方向、否定语境、时序、计划和信息不足。
+- 校验中强制拦截规则返回固定的 `VAL-*` 编号、规则名称和具体原因；编号由 `RULE_REGISTRY` 统一管理。
+- 鉴别方向、派生术语、多结果指标和因果归因作为复核提醒收集，不直接替代强制校验。
+- 将复核提醒写入运行日志的 `validation_findings`，并保留字段、编号、说明和 advisory 状态。
 - 原子写入临时文件后再替换 `output.json` 和 `run_log.json`。
-- 在运行日志中记录 prompt 版本、参数状态、attempt、运行编号和模型标识。
+- 在运行日志中记录 prompt 版本、参数状态、attempt、运行编号、模型标识和每次请求的校验结果。
+- 在每次 API 尝试中保存当时的参数状态，补充最终元数据不会覆盖该次观察。
 - 使用本地 Mock 验证请求结构、响应解析、校验、日志、容错和文件写入，不会访问真实模型。
-- Python 3.12 下 145 项自动化测试及本地 HTTP Mock 通过。安全夹具脚本另验证十例安全 Stub 的流程，未测量真实模型或坏输出的检出率。
+- 当前可直接运行的本地测试共 **145 项**；本地 HTTP Mock 校验通过。安全夹具脚本可执行十例安全 Stub 流程，但未量化真实模型或错误输出的检出率。
 
 上述本地测试与 Mock 成果只能证明工程链路和代码校验，不代表真实模型质量、临床正确性或比赛成绩。
 
@@ -162,14 +170,16 @@ python main.py
 
 - 尚未接入企业赛正式模型和主办方指定端点。
 - 尚未取得正式的企业赛 `.env`、正式 `input.json` 和正式响应协议。
-- 尚未实测 seed、temperature、response_format 和 Thinking 是否被真实端点接受。
+- 尚未实测真实端点是否接受 seed、temperature、response_format 和 Thinking，或是否静默忽略参数。
 - 尚未实测真实并发、超时、重试、调用预算和错误重试规则。
+- 尚未完成真实 API 响应形状、限流、鉴权和服务端错误的企业赛联调。
 - 尚未生成真实比赛的根目录 `output.json` 和 `run_log.json`。
 - 尚未生成和复核正式的 `results.json` 与企业赛算法/结果 ZIP 包。
-- 尚未完成企业赛统一环境中的 Python 3.11 最终彩排和现场复现。
-- 尚未完成公开练习病例上的基线与改进版同条件对比。
-- 截止点过滤、数据提取和部分医疗启发式规则仍需更完整的实现与临床口径验证。
-- 提示词候选尚未由具名临床人员签署；若团队选择内部签署，需绑定最终文本 exact hash。
+- 尚未完成企业赛统一环境中的最终彩排和现场复现。
+- 尚未完成公开练习病例上的基线与改进版同条件对比，以及真实模型检出率或误报率统计。
+- 尚未实现独立的资料截止点过滤模块；目前只校验截止点字段并将全部资料组装至 Prompt。
+- 部分关键词和启发式医学规则仍需公开案例验证及临床口径复核。
+- 若团队选择内部 Prompt 签署，尚未绑定具名审查人和最终文本 exact hash；这不是赛方 PDF 明确要求。
 - 临床批准、提示词冻结、确定性或真实医学质量仍不能声明。
 
 企业赛拿到正式配置后，测试端点和运行正式算法可使用：
